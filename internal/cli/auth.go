@@ -14,8 +14,8 @@ import (
 )
 
 // probeToken checks a token against the API without needing any specific
-// permission: 200 or 403 means the key authenticated; 401 means it did not.
-// detail explains a 403 (permission vs plan gate) for `auth status`.
+// permission: 200, 403, or 402 means the key authenticated; 401 means it did
+// not. detail explains a permission or plan gate for `auth status`.
 func (a *App) probeToken() (workspaces int, readable bool, detail string, err error) {
 	raw, err := a.request("GET", "/api/v1/workspaces", nil, nil)
 	if err == nil {
@@ -26,9 +26,9 @@ func (a *App) probeToken() (workspaces int, readable bool, detail string, err er
 		return 0, true, "", nil
 	}
 	var apiErr *APIError
-	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusForbidden {
+	if errors.As(err, &apiErr) && (apiErr.StatusCode == http.StatusForbidden || apiErr.StatusCode == http.StatusPaymentRequired) {
 		detail = "workspace.read not granted"
-		if apiErr.Code == "plan_required" {
+		if apiErr.Code == "upgrade_required" {
 			detail = "workspace listing needs a paid plan"
 		}
 		return 0, false, detail, nil // authenticated either way

@@ -799,7 +799,7 @@ func TestLocalCommandsSurviveBrokenConfig(t *testing.T) {
 }
 
 func TestAuthStatusPlanGateDetail(t *testing.T) {
-	f := &fakeAPI{status: 403, body: `{"error":{"code":"plan_required","message":"your plan does not include this endpoint","status":403}}`}
+	f := &fakeAPI{status: 402, body: `{"error":{"code":"upgrade_required","message":"your plan does not include this endpoint","status":402}}`}
 	out, _, code := run(t, f, []string{"auth", "status"}, runOpts{})
 	if code != 0 {
 		t.Fatalf("plan-gated key is still valid; exit %d", code)
