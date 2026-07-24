@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -41,10 +43,32 @@ func (a *App) request(method, path string, query url.Values, body any) (json.Raw
 	if err != nil {
 		return nil, err
 	}
-	raw, retryAfter, err := a.do(method, path, query, payload)
+	return a.requestPayload(method, path, query, payload, "application/json")
+}
+
+// requestFile submits one file as multipart/form-data, keeping uploads within
+// the same authentication and retry behavior as JSON API operations.
+func (a *App) requestFile(method, path, filename string, content []byte) (json.RawMessage, error) {
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	file, err := mw.CreateFormFile("file", filepath.Base(filename))
+	if err != nil {
+		return nil, err
+	}
+	if _, err := file.Write(content); err != nil {
+		return nil, err
+	}
+	if err := mw.Close(); err != nil {
+		return nil, err
+	}
+	return a.requestPayload(method, path, nil, body.Bytes(), mw.FormDataContentType())
+}
+
+func (a *App) requestPayload(method, path string, query url.Values, payload []byte, contentType string) (json.RawMessage, error) {
+	raw, retryAfter, err := a.doWithContentType(method, path, query, payload, contentType)
 	if retryAfter > 0 {
 		sleepFn(retryAfter)
-		raw, _, err = a.do(method, path, query, payload)
+		raw, _, err = a.doWithContentType(method, path, query, payload, contentType)
 	}
 	var apiErr *APIError
 	if errors.As(err, &apiErr) && apiErr.Code == "cross_origin" && a.token == "" {
@@ -72,6 +96,10 @@ func encodeBody(body any) ([]byte, error) {
 // do returns (body, 0, nil) on success, (nil, delay, err) when the caller
 // should retry after delay, or (nil, 0, err) on a terminal error.
 func (a *App) do(method, path string, query url.Values, payload []byte) (json.RawMessage, time.Duration, error) {
+	return a.doWithContentType(method, path, query, payload, "application/json")
+}
+
+func (a *App) doWithContentType(method, path string, query url.Values, payload []byte, contentType string) (json.RawMessage, time.Duration, error) {
 	u := a.baseURL + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
@@ -85,7 +113,7 @@ func (a *App) do(method, path string, query url.Values, payload []byte) (json.Ra
 		return nil, 0, err
 	}
 	if payload != nil {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", contentType)
 	}
 	if a.token != "" {
 		req.Header.Set("Authorization", "Bearer "+a.token)

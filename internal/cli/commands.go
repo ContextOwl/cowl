@@ -13,6 +13,7 @@ func allCommands() []*Command {
 		cmdWorkspacesList(), cmdWorkspacesCreate(), cmdWorkspacesUpdate(), cmdWorkspacesDelete(),
 		cmdArticlesList(), cmdArticlesGet(), cmdArticlesCreate(), cmdArticlesUpdate(), cmdArticlesPlace(),
 		cmdSectionsCreate(),
+		cmdUploadsImage(),
 		cmdProposalsList(), cmdProposalsCreate(),
 		cmdChangelogList(), cmdChangelogCreate(), cmdChangelogUpdate(), cmdChangelogDelete(),
 		cmdLandingGet(), cmdLandingAutofill(), cmdLandingSet(), cmdLandingPropose(),
