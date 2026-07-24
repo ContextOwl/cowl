@@ -22,16 +22,18 @@ case "$(uname -m)" in
 	*) fail "unsupported architecture: $(uname -m)" ;;
 esac
 
+tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/cowl.XXXXXX")"
+trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
+
 version="${COWL_VERSION:-}"
 if [ -z "$version" ]; then
-	version="$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" | awk -F '"' '/"tag_name":/ { print $4; exit }')"
+	curl -fsSL "https://api.github.com/repos/$repo/releases/latest" -o "$tmpdir/release.json"
+	version="$(awk -F '"' '/"tag_name":/ { print $4; exit }' "$tmpdir/release.json")"
 	[ -n "$version" ] || fail "could not determine the latest release"
 fi
 
 archive="cowl_${version}_${os}_${arch}.tar.gz"
 base_url="https://github.com/$repo/releases/download/$version"
-tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/cowl.XXXXXX")"
-trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
 
 curl -fsSL "$base_url/$archive" -o "$tmpdir/$archive"
 curl -fsSL "$base_url/SHA256SUMS" -o "$tmpdir/SHA256SUMS"
