@@ -33,7 +33,7 @@ func cmdMemoryList() *Command {
 	var prefix, kind string
 	return &Command{
 		Group: "memory", Name: "list", OpIDs: []string{"listMemory"},
-		Summary: "List private memory notes (the index)",
+		Summary: "List shared workspace memory notes (the index)",
 		Usage:   "cowl memory list [--prefix P] [--kind K]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&prefix, "prefix", "", "only paths starting with this prefix")
@@ -68,7 +68,7 @@ func cmdMemorySearch() *Command {
 	var limit int
 	return &Command{
 		Group: "memory", Name: "search", OpIDs: []string{"searchMemory"},
-		Summary: "Full-text search private memory notes",
+		Summary: "Full-text search shared workspace memory notes",
 		Usage:   "cowl memory search QUERY [--limit N]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.IntVar(&limit, "limit", 10, "max results (max 50)")
@@ -137,7 +137,7 @@ func cmdMemoryWrite() *Command {
 	var opts struct{ kind, tags, links, file, body string }
 	return &Command{
 		Group: "memory", Name: "write", OpIDs: []string{"writeMemory"},
-		Summary: "Create or update a private memory note",
+		Summary: "Create or update a shared workspace memory note",
 		Usage:   "cowl memory write PATH [--file FILE|-] [--body TEXT] [--kind K] [--tags a,b] [--links p,q]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&opts.file, "file", "", "note body file, - for stdin")
@@ -184,7 +184,7 @@ func cmdMemoryDelete() *Command {
 	var yes bool
 	return &Command{
 		Group: "memory", Name: "delete", OpIDs: []string{"deleteMemory"},
-		Summary: "Delete a private memory note",
+		Summary: "Delete a shared workspace memory note",
 		Usage:   "cowl memory delete PATH [--yes]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&yes, "yes", false, "skip the confirmation prompt")
