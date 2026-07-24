@@ -28,7 +28,7 @@ func (a *App) probeToken() (workspaces int, readable bool, detail string, err er
 	var apiErr *APIError
 	if errors.As(err, &apiErr) && (apiErr.StatusCode == http.StatusForbidden || apiErr.StatusCode == http.StatusPaymentRequired) {
 		detail = "workspace.read not granted"
-		if apiErr.Code == "upgrade_required" {
+		if apiErr.Code == "plan_required" || apiErr.Code == "upgrade_required" {
 			detail = "workspace listing needs a paid plan"
 		}
 		return 0, false, detail, nil // authenticated either way
