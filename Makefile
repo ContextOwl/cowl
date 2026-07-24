@@ -27,4 +27,5 @@ dist:
 			tar -czf dist/cowl_$(VERSION)_$${os}_$${arch}.tar.gz -C dist $$bin && rm dist/$$bin; \
 		fi; \
 	done
-	cd dist && { command -v sha256sum >/dev/null && sha256sum cowl_* || shasum -a 256 cowl_*; } > SHA256SUMS
+	cp install.sh dist/install.sh
+	cd dist && { command -v sha256sum >/dev/null && sha256sum cowl_* install.sh || shasum -a 256 cowl_* install.sh; } > SHA256SUMS
