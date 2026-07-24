@@ -3,6 +3,9 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,11 +16,12 @@ import (
 )
 
 type captured struct {
-	Method string
-	Path   string
-	Query  string
-	Body   string
-	Auth   string
+	Method      string
+	Path        string
+	Query       string
+	Body        string
+	Auth        string
+	ContentType string
 }
 
 type fakeAPI struct {
@@ -32,7 +36,7 @@ func (f *fakeAPI) handler() http.Handler {
 		buf.ReadFrom(r.Body)
 		f.reqs = append(f.reqs, captured{
 			Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery,
-			Body: buf.String(), Auth: r.Header.Get("Authorization"),
+			Body: buf.String(), Auth: r.Header.Get("Authorization"), ContentType: r.Header.Get("Content-Type"),
 		})
 		status := f.status
 		if status == 0 {
@@ -93,6 +97,27 @@ func decodeBody(t *testing.T, body string) map[string]any {
 		t.Fatalf("request body is not a JSON object: %q: %v", body, err)
 	}
 	return m
+}
+
+func uploadedFile(t *testing.T, req captured) (string, []byte) {
+	t.Helper()
+	mediaType, params, err := mime.ParseMediaType(req.ContentType)
+	if err != nil || mediaType != "multipart/form-data" {
+		t.Fatalf("content type = %q, want multipart/form-data (%v)", req.ContentType, err)
+	}
+	mr := multipart.NewReader(strings.NewReader(req.Body), params["boundary"])
+	part, err := mr.NextPart()
+	if err != nil {
+		t.Fatalf("read multipart file: %v", err)
+	}
+	if part.FormName() != "file" {
+		t.Fatalf("form field = %q, want file", part.FormName())
+	}
+	content, err := io.ReadAll(part)
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	return part.FileName(), content
 }
 
 func TestRequestShapes(t *testing.T) {
@@ -395,6 +420,7 @@ func TestUsageErrors(t *testing.T) {
 		{"completion needs shell", []string{"completion"}, "bash, zsh, fish"},
 		{"workspaces create rejects stray args", []string{"workspaces", "create", "My", "Docs"}, "quote multi-word"},
 		{"articles update rejects bad status", []string{"articles", "update", "x", "--status", "published"}, "DRAFT, IN REVIEW, BETA, STABLE, DEPRECATED"},
+		{"uploads image needs file", []string{"uploads", "image"}, "exactly one FILE"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -410,6 +436,33 @@ func TestUsageErrors(t *testing.T) {
 				t.Errorf("request should not have been sent, got %v", f.reqs)
 			}
 		})
+	}
+}
+
+func TestUploadsImage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "architecture.png")
+	want := []byte("image bytes")
+	if err := os.WriteFile(path, want, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeAPI{status: http.StatusCreated, body: `{"url":"/uploads/default/prod/image.png"}`}
+	out, errOut, code := run(t, f, []string{"uploads", "image", path, "-w", "prod"}, runOpts{})
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	req := lastReq(t, f)
+	if req.Method != http.MethodPost || req.Path != "/api/v1/workspaces/prod/uploads" {
+		t.Errorf("request = %s %s", req.Method, req.Path)
+	}
+	if req.Auth != "Bearer cowl_pat_test0token" {
+		t.Errorf("auth header = %q", req.Auth)
+	}
+	name, content := uploadedFile(t, req)
+	if name != "architecture.png" || !bytes.Equal(content, want) {
+		t.Errorf("uploaded file = %q %q, want architecture.png %q", name, content, want)
+	}
+	if out != "/uploads/default/prod/image.png\n" {
+		t.Errorf("stdout = %q", out)
 	}
 }
 
