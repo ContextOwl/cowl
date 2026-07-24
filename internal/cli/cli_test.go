@@ -799,13 +799,19 @@ func TestLocalCommandsSurviveBrokenConfig(t *testing.T) {
 }
 
 func TestAuthStatusPlanGateDetail(t *testing.T) {
-	f := &fakeAPI{status: 403, body: `{"error":{"code":"plan_required","message":"your plan does not include this endpoint","status":403}}`}
-	out, _, code := run(t, f, []string{"auth", "status"}, runOpts{})
-	if code != 0 {
-		t.Fatalf("plan-gated key is still valid; exit %d", code)
-	}
-	if !strings.Contains(out, "needs a paid plan") {
-		t.Errorf("status missing plan detail:\n%s", out)
+	for name, f := range map[string]*fakeAPI{
+		"legacy":  {status: 403, body: `{"error":{"code":"plan_required","message":"your plan does not include this endpoint","status":403}}`},
+		"current": {status: 402, body: `{"error":{"code":"upgrade_required","message":"your plan does not include this endpoint","status":402}}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, _, code := run(t, f, []string{"auth", "status"}, runOpts{})
+			if code != 0 {
+				t.Fatalf("plan-gated key is still valid; exit %d", code)
+			}
+			if !strings.Contains(out, "needs a paid plan") {
+				t.Errorf("status missing plan detail:\n%s", out)
+			}
+		})
 	}
 }
 
