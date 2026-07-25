@@ -13,6 +13,10 @@ var validArticleStatuses = map[string]bool{
 	"DRAFT": true, "IN REVIEW": true, "BETA": true, "STABLE": true, "DEPRECATED": true,
 }
 
+var validArticleVisibilities = map[string]bool{
+	"public": true, "internal": true, "private": true,
+}
+
 type articleRow struct {
 	Slug      string `json:"slug"`
 	Title     string `json:"title"`
@@ -128,15 +132,16 @@ func cmdArticlesCreate() *Command {
 }
 
 func cmdArticlesUpdate() *Command {
-	var opts struct{ title, section, status, file, markdown string }
+	var opts struct{ title, section, status, visibility, file, markdown string }
 	return &Command{
 		Group: "articles", Name: "update", OpIDs: []string{"updateArticle"},
 		Summary: "Update an article (changing --status needs article.publish)",
-		Usage:   "cowl articles update SLUG [--title T] [--section S] [--status STATUS] [--file FILE|-] [--markdown TEXT]",
+		Usage:   "cowl articles update SLUG [--title T] [--section S] [--status STATUS] [--visibility TIER] [--file FILE|-] [--markdown TEXT]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&opts.title, "title", "", "new title")
 			fs.StringVar(&opts.section, "section", "", "new nav section label")
 			fs.StringVar(&opts.status, "status", "", "DRAFT, IN REVIEW, BETA, STABLE, or DEPRECATED")
+			fs.StringVar(&opts.visibility, "visibility", "", "public, internal, or private")
 			fs.StringVar(&opts.file, "file", "", "markdown file, - for stdin")
 			fs.StringVar(&opts.markdown, "markdown", "", "inline markdown content")
 		},
@@ -161,11 +166,17 @@ func cmdArticlesUpdate() *Command {
 				}
 				body["status"] = opts.status
 			}
+			if a.flagWasSet("visibility") {
+				if !validArticleVisibilities[opts.visibility] {
+					return usageError("--visibility must be public, internal, or private")
+				}
+				body["visibility"] = opts.visibility
+			}
 			if hasContent {
 				body["markdown"] = content
 			}
 			if len(body) == 0 {
-				return usageError("nothing to update: pass at least one of --title, --section, --status, --file, --markdown")
+				return usageError("nothing to update: pass at least one of --title, --section, --status, --visibility, --file, --markdown")
 			}
 			raw, err := a.request("PATCH", a.ws()+"/articles/"+url.PathEscape(args[0]), nil, body)
 			if err != nil {

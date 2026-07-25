@@ -187,6 +187,13 @@ func TestRequestShapes(t *testing.T) {
 			wantOut:  []string{"updated article intro"},
 		},
 		{
+			name: "articles update visibility", args: []string{"articles", "update", "intro", "--visibility", "internal"},
+			response:   `{"slug":"intro"}`,
+			wantMethod: "PATCH", wantPath: "/api/v1/workspaces/-/articles/intro",
+			wantBody: map[string]any{"visibility": "internal"},
+			wantOut:  []string{"updated article intro"},
+		},
+		{
 			name: "articles place", args: []string{"articles", "place", "intro", "--section", "guides"},
 			response:   `{"slug":"intro","section":"guides"}`,
 			wantMethod: "POST", wantPath: "/api/v1/workspaces/-/articles/intro/placement",
@@ -408,6 +415,7 @@ func TestUsageErrors(t *testing.T) {
 		{"missing subcommand", []string{"articles"}, "needs a subcommand"},
 		{"articles create needs title", []string{"articles", "create"}, "--title is required"},
 		{"articles update needs a field", []string{"articles", "update", "x"}, "nothing to update"},
+		{"articles update rejects invalid visibility", []string{"articles", "update", "x", "--visibility", "team"}, "--visibility must be public, internal, or private"},
 		{"articles place needs section", []string{"articles", "place", "x"}, "--section is required"},
 		{"file and markdown conflict", []string{"articles", "create", "--title", "t", "--file", "a.md", "--markdown", "x"}, "not both"},
 		{"proposals need content", []string{"proposals", "create", "--title", "t"}, "markdown content is required"},
