@@ -326,37 +326,6 @@ func TestRequestShapes(t *testing.T) {
 			wantOut: []string{"detached page get-users"},
 		},
 		{
-			name: "memory list filtered", args: []string{"memory", "list", "--prefix", "notes/", "--kind", "project"},
-			response:   `[{"path":"notes/a","kind":"project","tags":["x"],"size":42,"updatedAt":"2026-07-19T10:00:00Z"}]`,
-			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/memory", wantQuery: "kind=project&prefix=notes%2F",
-			wantOut: []string{"PATH", "notes/a", "project"},
-		},
-		{
-			name: "memory search", args: []string{"memory", "search", "deploy", "steps", "--limit", "5"},
-			response:   `{"semantic":false,"results":[{"path":"notes/deploy","kind":"note","size":10,"updatedAt":"2026-07-19T10:00:00Z"}]}`,
-			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/memory/search", wantQuery: "limit=5&q=deploy+steps",
-			wantOut: []string{"notes/deploy"},
-		},
-		{
-			name: "memory get prints body", args: []string{"memory", "get", "notes/a"},
-			response:   `{"path":"notes/a","body":"remember this","kind":"note"}`,
-			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/memory/note", wantQuery: "path=notes%2Fa",
-			wantOut: []string{"remember this"},
-		},
-		{
-			name: "memory write", args: []string{"memory", "write", "notes/a", "--body", "fact", "--kind", "project", "--tags", "x,y", "--links", "notes/b"},
-			response:   `{"path":"notes/a"}`,
-			wantMethod: "PUT", wantPath: "/api/v1/workspaces/-/memory/note",
-			wantBody: map[string]any{"path": "notes/a", "body": "fact", "kind": "project", "tags": []any{"x", "y"}, "links": []any{"notes/b"}},
-			wantOut:  []string{"wrote memory note notes/a"},
-		},
-		{
-			name: "memory delete", args: []string{"memory", "delete", "notes/a", "--yes"},
-			response:   `{"deleted":"notes/a"}`,
-			wantMethod: "DELETE", wantPath: "/api/v1/workspaces/-/memory/note", wantQuery: "path=notes%2Fa",
-			wantOut: []string{"deleted memory note notes/a"},
-		},
-		{
 			name: "search full-text", args: []string{"search", "sso", "setup"},
 			response:   `[{"type":"article","slug":"sso","title":"SSO","snippet":"SSO setup"}]`,
 			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/search", wantQuery: "q=sso+setup",

@@ -17,7 +17,6 @@ func allCommands() []*Command {
 		cmdProposalsList(), cmdProposalsCreate(),
 		cmdChangelogList(), cmdChangelogCreate(), cmdChangelogUpdate(), cmdChangelogDelete(),
 		cmdLandingGet(), cmdLandingAutofill(), cmdLandingSet(), cmdLandingPropose(),
-		cmdMemoryList(), cmdMemorySearch(), cmdMemoryGet(), cmdMemoryWrite(), cmdMemoryDelete(),
 		cmdOpenAPIStatus(), cmdOpenAPIAttach(), cmdOpenAPISync(), cmdOpenAPIDetach(),
 		cmdOpenAPIPages(), cmdOpenAPICreateSection(), cmdOpenAPIPlace(), cmdOpenAPIDetachPage(),
 		cmdSearch(),
