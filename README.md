@@ -57,7 +57,7 @@ When stderr is not a terminal, an error is one JSON line in the error envelope o
 {"error":{"code":"stale_revision","message":"the article changed","status":409,"details":{"currentRevision":"8f3a2c1b9d0e"}}}
 ```
 
-A failure that cowl finds before a request uses the same envelope with status 0 and the code `usage`, `no_key`, `untrusted_host`, `network_error`, `config_error`, `invalid_response` or `aborted`.
+`status` is the HTTP status of the error. A failure that is not an HTTP error has status 0 and one of these codes: `usage`, `no_key`, `untrusted_host`, `config_error`, `network_error`, `invalid_response` or `aborted`. A server error without a JSON body gets the code `http_` and the status number, such as `http_502`.
 
 | Exit code | Meaning |
 |---|---|

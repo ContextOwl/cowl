@@ -37,8 +37,9 @@ type fakeResp struct {
 }
 
 // fakeAPI stands in for the ContextOwl REST API as CONTRACT.md describes it.
-// routes answers "METHOD /path"; fn answers anything when set; every other
-// request gets status and body.
+// A request whose "METHOD /path" is a key of routes gets that answer. Every
+// other request gets status and body. When fn is set, fn answers every
+// request.
 type fakeAPI struct {
 	mu     sync.Mutex
 	status int

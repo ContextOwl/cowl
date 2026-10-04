@@ -36,8 +36,9 @@ type IO struct {
 // Command is one CLI verb. OpIDs names the REST operations it drives.
 // Main loads the config and requires a trusted key before Run. Local
 // commands skip both and load what they need themselves, so a broken config
-// cannot stop version, completion, doctor or auth login. NoKey commands
-// (auth status, auth logout) load the config but run without a key.
+// cannot stop version, completion, doctor or auth login. NoKey commands load
+// the config but run without a key. auth status and auth logout are NoKey
+// commands.
 type Command struct {
 	Group   string // "" for top-level commands (search, api, version, ...)
 	Name    string

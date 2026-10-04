@@ -25,8 +25,9 @@ type usageError string
 
 func (e usageError) Error() string { return string(e) }
 
-// cliError is a failure that cowl finds itself, before or without an answer
-// from the server. It uses the error envelope of the server with status 0.
+// cliError is a failure that is not an HTTP error, such as a missing key, a
+// network failure or a body that cowl cannot read. It uses the error
+// envelope of the server with status 0.
 type cliError struct {
 	code    string
 	message string
@@ -80,8 +81,9 @@ func httpExitCode(status int) int {
 
 // fail writes err to stderr and returns the exit code. On a terminal the
 // error is text. Otherwise it is one JSON line: the envelope of the server
-// as sent, or the same shape with status 0 for a local failure. usage is the
-// synopsis of the command, or "" when no command was resolved.
+// as sent, or the same shape that cowl builds. A failure that is not an HTTP
+// error has status 0. usage is the synopsis of the command, or "" when no
+// command was resolved.
 func (a *App) fail(err error, usage string) int {
 	if a.ErrTTY {
 		a.writeErrorText(err, usage)

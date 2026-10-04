@@ -123,9 +123,9 @@ const (
 	maxEditOldLen = 4000
 )
 
-// readEdits reads --edits: a JSON array of 1 to 20 {"old","new"} objects.
-// Each old text must be 1 to 4,000 characters; the server checks that it
-// occurs exactly once.
+// readEdits reads --edits, a JSON array of 1 to 20 {"old","new"} objects.
+// Each old text must have 1 to 4,000 characters. The server checks that
+// each old text occurs exactly once.
 func (a *App) readEdits(path string) ([]textEdit, error) {
 	data, err := a.readFileArg(path)
 	if err != nil {

@@ -90,7 +90,7 @@ Before you draft an entry, list the recent entries to prevent a duplicate. Use `
 
 ## Errors
 
-The error line is `{"error":{"code","message","status","details"}}`. A `permission_denied` message names the permission that the key does not have.
+The error line is `{"error":{"code","message","status","details"}}`. A failure that is not an HTTP error, such as `no_key` or `network_error`, has status 0. A `permission_denied` message names the permission that the key does not have.
 
 | Exit | Meaning | Next step |
 |---|---|---|
