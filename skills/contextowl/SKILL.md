@@ -15,6 +15,7 @@ allowed-tools:
   - Bash(cowl proposals get *)
   - Bash(cowl whoami)
   - Bash(cowl doctor)
+  - Bash(cowl insights)
 ---
 
 # ContextOwl
@@ -78,6 +79,14 @@ cowl proposals get 12
 - Give the `reviewUrl` from the result to the user.
 - On `stale_revision`, read the article again and do the change again.
 - A full body that removes more than half of the text fails with `large_removal`. Add `--allow-shrink` only when the user wants that.
+
+## Find gaps
+
+```bash
+cowl insights                                    # what agents asked in the last 30 days, and what went unanswered
+```
+
+Run it when the user asks which docs are missing or which docs to write next. A question is unanswered when its search found nothing, or when the same key opened none of the top 3 results within 30 minutes. Propose a page for each gap that the user wants filled. The key needs the `analytics.read` permission.
 
 ## Changelog
 
