@@ -12,10 +12,12 @@ import (
 
 func main() {
 	os.Exit(cli.Main(os.Args[1:], cli.IO{
-		In:  os.Stdin,
-		Out: os.Stdout,
-		Err: os.Stderr,
-		Env: os.Getenv,
-		TTY: term.IsTerminal(int(os.Stdin.Fd())),
+		In:     os.Stdin,
+		Out:    os.Stdout,
+		Err:    os.Stderr,
+		Env:    os.Getenv,
+		TTY:    term.IsTerminal(int(os.Stdin.Fd())),
+		OutTTY: term.IsTerminal(int(os.Stdout.Fd())),
+		ErrTTY: term.IsTerminal(int(os.Stderr.Fd())),
 	}))
 }

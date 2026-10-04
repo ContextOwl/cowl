@@ -1,10 +1,10 @@
 package cli
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"net/url"
+	"strconv"
 )
 
 func cmdOpenAPIStatus() *Command {
@@ -13,11 +13,38 @@ func cmdOpenAPIStatus() *Command {
 		Summary: "Show the attached OpenAPI spec status as JSON",
 		Usage:   "cowl openapi status [-w WORKSPACE]",
 		Run: func(a *App, args []string) error {
+			if err := noArgs(args); err != nil {
+				return err
+			}
 			raw, err := a.request("GET", a.ws()+"/openapi", nil, nil)
 			if err != nil {
 				return err
 			}
 			return a.printJSON(raw)
+		},
+	}
+}
+
+func cmdOpenAPISpec() *Command {
+	return &Command{
+		Group: "openapi", Name: "spec", OpIDs: []string{"getOpenAPISpec"},
+		Summary: "Print the stored OpenAPI spec as it was attached (JSON or YAML)",
+		Usage:   "cowl openapi spec [-w WORKSPACE]",
+		Run: func(a *App, args []string) error {
+			if err := noArgs(args); err != nil {
+				return err
+			}
+			raw, err := a.request("GET", a.ws()+"/openapi/spec", nil, nil)
+			if err != nil {
+				return err
+			}
+			if _, err := a.Out.Write(raw); err != nil {
+				return err
+			}
+			if a.OutTTY && len(raw) > 0 && raw[len(raw)-1] != '\n' {
+				fmt.Fprintln(a.Out)
+			}
+			return nil
 		},
 	}
 }
@@ -33,6 +60,9 @@ func cmdOpenAPIAttach() *Command {
 			fs.StringVar(&file, "file", "", "spec file (JSON or YAML), - for stdin")
 		},
 		Run: func(a *App, args []string) error {
+			if err := noArgs(args); err != nil {
+				return err
+			}
 			if (specURL == "") == (file == "") {
 				return usageError("pass exactly one of --url or --file")
 			}
@@ -58,9 +88,12 @@ func cmdOpenAPIAttach() *Command {
 func cmdOpenAPISync() *Command {
 	return &Command{
 		Group: "openapi", Name: "sync", OpIDs: []string{"syncOpenAPI"},
-		Summary: "Regenerate pages from the attached spec",
+		Summary: "Fetch the spec URL again and regenerate pages. A failed fetch keeps the stored spec",
 		Usage:   "cowl openapi sync [-w WORKSPACE]",
 		Run: func(a *App, args []string) error {
+			if err := noArgs(args); err != nil {
+				return err
+			}
 			raw, err := a.request("POST", a.ws()+"/openapi/sync", nil, nil)
 			if err != nil {
 				return err
@@ -74,32 +107,44 @@ func cmdOpenAPIDetach() *Command {
 	var yes bool
 	return &Command{
 		Group: "openapi", Name: "detach", OpIDs: []string{"detachOpenAPI"},
-		Summary: "Detach the OpenAPI spec (generated pages become editable)",
+		Summary: "Detach the OpenAPI spec and delete the pages it generated",
 		Usage:   "cowl openapi detach [--yes]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&yes, "yes", false, "skip the confirmation prompt")
 		},
 		Run: func(a *App, args []string) error {
-			if err := a.confirm("detach the OpenAPI spec from workspace "+a.workspace, yes); err != nil {
+			if err := noArgs(args); err != nil {
+				return err
+			}
+			if err := a.confirm("detach the OpenAPI spec from workspace "+a.workspace+" and delete its generated pages", yes); err != nil {
 				return err
 			}
 			raw, err := a.request("DELETE", a.ws()+"/openapi", nil, nil)
 			if err != nil {
 				return err
 			}
-			if a.g.jsonOut {
-				return a.printJSON(raw)
-			}
-			var res struct {
+			return emitAs(a, raw, func(res struct {
 				Removed int `json:"removed"`
-			}
-			if err := json.Unmarshal(raw, &res); err != nil {
-				return err
-			}
-			fmt.Fprintf(a.Out, "detached OpenAPI spec (%d generated pages removed)\n", res.Removed)
-			return nil
+			}) error {
+				fmt.Fprintf(a.Out, "detached the OpenAPI spec and deleted %d generated pages\n", res.Removed)
+				return nil
+			})
 		},
 	}
+}
+
+type openAPILayout struct {
+	Sections []struct {
+		Key   string `json:"key"`
+		Label string `json:"label"`
+	} `json:"sections"`
+	Pages []struct {
+		Slug    string `json:"slug"`
+		Title   string `json:"title"`
+		Method  string `json:"method"`
+		Section string `json:"section"`
+		Nav     string `json:"nav"`
+	} `json:"pages"`
 }
 
 func cmdOpenAPIPages() *Command {
@@ -108,43 +153,29 @@ func cmdOpenAPIPages() *Command {
 		Summary: "List generated OpenAPI pages and their sections",
 		Usage:   "cowl openapi pages [-w WORKSPACE]",
 		Run: func(a *App, args []string) error {
+			if err := noArgs(args); err != nil {
+				return err
+			}
 			raw, err := a.request("GET", a.ws()+"/openapi/pages", nil, nil)
 			if err != nil {
 				return err
 			}
-			if a.g.jsonOut {
-				return a.printJSON(raw)
-			}
-			var layout struct {
-				Sections []struct {
-					Key   string `json:"key"`
-					Label string `json:"label"`
-				} `json:"sections"`
-				Pages []struct {
-					Slug    string `json:"slug"`
-					Title   string `json:"title"`
-					Method  string `json:"method"`
-					Section string `json:"section"`
-					Nav     string `json:"nav"`
-				} `json:"pages"`
-			}
-			if err := json.Unmarshal(raw, &layout); err != nil {
-				return err
-			}
-			if len(layout.Sections) > 0 {
-				rows := make([][]string, 0, len(layout.Sections))
-				for _, s := range layout.Sections {
-					rows = append(rows, []string{s.Key, s.Label})
+			return emitAs(a, raw, func(layout openAPILayout) error {
+				if len(layout.Sections) > 0 {
+					rows := make([][]string, 0, len(layout.Sections))
+					for _, s := range layout.Sections {
+						rows = append(rows, []string{s.Key, s.Label})
+					}
+					a.table([]string{"SECTION", "LABEL"}, rows)
+					fmt.Fprintln(a.Out)
 				}
-				a.table([]string{"SECTION", "LABEL"}, rows)
-				fmt.Fprintln(a.Out)
-			}
-			rows := make([][]string, 0, len(layout.Pages))
-			for _, p := range layout.Pages {
-				rows = append(rows, []string{p.Slug, dash(p.Method), p.Title, dash(p.Nav)})
-			}
-			a.table([]string{"SLUG", "METHOD", "TITLE", "NAV"}, rows)
-			return nil
+				rows := make([][]string, 0, len(layout.Pages))
+				for _, p := range layout.Pages {
+					rows = append(rows, []string{p.Slug, dash(p.Method), p.Title, dash(p.Nav)})
+				}
+				a.table([]string{"SLUG", "METHOD", "TITLE", "NAV"}, rows)
+				return nil
+			})
 		},
 	}
 }
@@ -152,7 +183,7 @@ func cmdOpenAPIPages() *Command {
 func cmdOpenAPICreateSection() *Command {
 	return &Command{
 		Group: "openapi", Name: "create-section", OpIDs: []string{"createOpenAPISection"},
-		Summary: "Create a nav section for generated OpenAPI pages",
+		Summary: "Create a sidebar section for generated OpenAPI pages, or return the one with the same label",
 		Usage:   "cowl openapi create-section LABEL",
 		Run: func(a *App, args []string) error {
 			label, err := oneArg(args, "LABEL")
@@ -163,18 +194,7 @@ func cmdOpenAPICreateSection() *Command {
 			if err != nil {
 				return err
 			}
-			if a.g.jsonOut {
-				return a.printJSON(raw)
-			}
-			var ref struct {
-				Key   string `json:"key"`
-				Label string `json:"label"`
-			}
-			if err := json.Unmarshal(raw, &ref); err != nil {
-				return err
-			}
-			fmt.Fprintf(a.Out, "created section %s (%q)\n", ref.Key, ref.Label)
-			return nil
+			return a.printSectionRef(raw)
 		},
 	}
 }
@@ -188,28 +208,35 @@ func cmdOpenAPIPlace() *Command {
 		Usage:   "cowl openapi place SLUG --section SECTION_KEY [--position N]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&section, "section", "", "target section key (required)")
-			fs.IntVar(&position, "position", 0, "position within the section (0-based)")
+			fs.IntVar(&position, "position", 0, "0-based position in the section (default: the end)")
 		},
 		Run: func(a *App, args []string) error {
-			if len(args) != 1 {
-				return usageError("expected exactly one SLUG argument")
+			slug, err := oneArg(args, "SLUG")
+			if err != nil {
+				return err
 			}
 			if section == "" {
 				return usageError("--section is required")
 			}
 			body := map[string]any{"section": section}
 			if a.flagWasSet("position") {
+				if position < 0 {
+					return usageError("--position must be 0 or more")
+				}
 				body["position"] = position
 			}
-			raw, err := a.request("POST", a.ws()+"/openapi/pages/"+url.PathEscape(args[0])+"/placement", nil, body)
+			raw, err := a.request("POST", a.ws()+"/openapi/pages/"+url.PathEscape(slug)+"/placement", nil, body)
 			if err != nil {
 				return err
 			}
-			if a.g.jsonOut {
-				return a.printJSON(raw)
-			}
-			fmt.Fprintf(a.Out, "placed page %s in %s\n", args[0], section)
-			return nil
+			return a.emit(raw, func() error {
+				where := ""
+				if a.flagWasSet("position") {
+					where = " at position " + strconv.Itoa(position)
+				}
+				fmt.Fprintf(a.Out, "placed page %s in %s%s\n", slug, section, where)
+				return nil
+			})
 		},
 	}
 }
@@ -217,21 +244,21 @@ func cmdOpenAPIPlace() *Command {
 func cmdOpenAPIDetachPage() *Command {
 	return &Command{
 		Group: "openapi", Name: "detach-page", OpIDs: []string{"detachOpenAPIPage"},
-		Summary: "Detach one generated page so it can be edited",
+		Summary: "Detach one generated page: it becomes a normal article and later syncs skip it",
 		Usage:   "cowl openapi detach-page SLUG",
 		Run: func(a *App, args []string) error {
-			if len(args) != 1 {
-				return usageError("expected exactly one SLUG argument")
-			}
-			raw, err := a.request("DELETE", a.ws()+"/openapi/pages/"+url.PathEscape(args[0]), nil, nil)
+			slug, err := oneArg(args, "SLUG")
 			if err != nil {
 				return err
 			}
-			if a.g.jsonOut {
-				return a.printJSON(raw)
+			raw, err := a.request("DELETE", a.ws()+"/openapi/pages/"+url.PathEscape(slug), nil, nil)
+			if err != nil {
+				return err
 			}
-			fmt.Fprintf(a.Out, "detached page %s (now editable)\n", args[0])
-			return nil
+			return a.emit(raw, func() error {
+				fmt.Fprintf(a.Out, "detached page %s: it is now a normal article, and later syncs skip it\n", slug)
+				return nil
+			})
 		},
 	}
 }

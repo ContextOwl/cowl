@@ -61,7 +61,7 @@ func cmdAPI() *Command {
 			if err != nil {
 				return err
 			}
-			if len(raw) == 0 {
+			if len(raw) == 0 && a.OutTTY {
 				fmt.Fprintln(a.Out, "ok")
 				return nil
 			}

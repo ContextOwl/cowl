@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"net/url"
@@ -12,6 +11,7 @@ type workspaceRow struct {
 	Name       string `json:"name"`
 	Color      string `json:"color"`
 	AccessMode string `json:"accessMode"`
+	Listed     bool   `json:"listed"`
 	LLMSTxt    bool   `json:"llmsTxt"`
 }
 
@@ -30,30 +30,24 @@ func workspaceTarget(a *App, args []string) (string, error) {
 func cmdWorkspacesList() *Command {
 	return &Command{
 		Group: "workspaces", Name: "list", OpIDs: []string{"listWorkspaces"},
-		Summary: "List the organization's workspaces visible to this key",
+		Summary: "List the workspaces this key can reach",
 		Usage:   "cowl workspaces list",
 		Run: func(a *App, args []string) error {
+			if err := noArgs(args); err != nil {
+				return err
+			}
 			raw, err := a.request("GET", "/api/v1/workspaces", nil, nil)
 			if err != nil {
 				return err
 			}
-			if a.g.jsonOut {
-				return a.printJSON(raw)
-			}
-			var rows []workspaceRow
-			if err := json.Unmarshal(raw, &rows); err != nil {
-				return err
-			}
-			out := make([][]string, 0, len(rows))
-			for _, r := range rows {
-				llms := ""
-				if r.LLMSTxt {
-					llms = "yes"
+			return emitAs(a, raw, func(rows []workspaceRow) error {
+				out := make([][]string, 0, len(rows))
+				for _, r := range rows {
+					out = append(out, []string{r.ID, r.Name, r.AccessMode, yesNo(r.Listed), yesNo(r.LLMSTxt), r.Color})
 				}
-				out = append(out, []string{r.ID, r.Name, r.AccessMode, llms, r.Color})
-			}
-			a.table([]string{"ID", "NAME", "ACCESS", "LLMS.TXT", "COLOR"}, out)
-			return nil
+				a.table([]string{"ID", "NAME", "ACCESS", "LISTED", "LLMS.TXT", "COLOR"}, out)
+				return nil
+			})
 		},
 	}
 }
@@ -61,15 +55,16 @@ func cmdWorkspacesList() *Command {
 func cmdWorkspacesCreate() *Command {
 	var opts struct {
 		color, accessMode string
-		llmsTxt           bool
+		listed, llmsTxt   bool
 	}
 	return &Command{
 		Group: "workspaces", Name: "create", OpIDs: []string{"createWorkspace"},
 		Summary: "Create a workspace (org-wide key, paid plan)",
-		Usage:   "cowl workspaces create NAME [--color #rrggbb] [--access-mode public|internal|private] [--llms-txt]",
+		Usage:   "cowl workspaces create NAME [--color #rrggbb] [--access-mode public|internal|private] [--listed] [--llms-txt]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&opts.color, "color", "", "accent color (#rrggbb)")
 			fs.StringVar(&opts.accessMode, "access-mode", "", "public, internal, or private")
+			fs.BoolVar(&opts.listed, "listed", false, "show this public workspace in the workspace switcher")
 			fs.BoolVar(&opts.llmsTxt, "llms-txt", false, "serve llms.txt for this workspace")
 		},
 		Run: func(a *App, args []string) error {
@@ -84,6 +79,9 @@ func cmdWorkspacesCreate() *Command {
 			if opts.accessMode != "" {
 				body["access_mode"] = opts.accessMode
 			}
+			if a.flagWasSet("listed") {
+				body["listed"] = opts.listed
+			}
 			if a.flagWasSet("llms-txt") {
 				body["llms_txt"] = opts.llmsTxt
 			}
@@ -91,15 +89,10 @@ func cmdWorkspacesCreate() *Command {
 			if err != nil {
 				return err
 			}
-			if a.g.jsonOut {
-				return a.printJSON(raw)
-			}
-			var ws workspaceRow
-			if err := json.Unmarshal(raw, &ws); err != nil {
-				return err
-			}
-			fmt.Fprintf(a.Out, "created workspace %s (%q)\n", ws.ID, ws.Name)
-			return nil
+			return emitAs(a, raw, func(ws workspaceRow) error {
+				fmt.Fprintf(a.Out, "created workspace %s (%q)\n", ws.ID, ws.Name)
+				return nil
+			})
 		},
 	}
 }
@@ -107,16 +100,17 @@ func cmdWorkspacesCreate() *Command {
 func cmdWorkspacesUpdate() *Command {
 	var opts struct {
 		name, color, accessMode string
-		llmsTxt                 bool
+		listed, llmsTxt         bool
 	}
 	return &Command{
 		Group: "workspaces", Name: "update", OpIDs: []string{"updateWorkspace"},
 		Summary: "Update a workspace",
-		Usage:   "cowl workspaces update [WORKSPACE] [--name N] [--color #rrggbb] [--access-mode M] [--llms-txt=BOOL]",
+		Usage:   "cowl workspaces update [WORKSPACE] [--name N] [--color #rrggbb] [--access-mode M] [--listed=BOOL] [--llms-txt=BOOL]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&opts.name, "name", "", "new name")
 			fs.StringVar(&opts.color, "color", "", "accent color (#rrggbb)")
 			fs.StringVar(&opts.accessMode, "access-mode", "", "public, internal, or private")
+			fs.BoolVar(&opts.listed, "listed", false, "show this public workspace in the workspace switcher")
 			fs.BoolVar(&opts.llmsTxt, "llms-txt", false, "serve llms.txt for this workspace")
 		},
 		Run: func(a *App, args []string) error {
@@ -134,25 +128,23 @@ func cmdWorkspacesUpdate() *Command {
 			if a.flagWasSet("access-mode") {
 				body["access_mode"] = opts.accessMode
 			}
+			if a.flagWasSet("listed") {
+				body["listed"] = opts.listed
+			}
 			if a.flagWasSet("llms-txt") {
 				body["llms_txt"] = opts.llmsTxt
 			}
 			if len(body) == 0 {
-				return usageError("nothing to update: pass at least one of --name, --color, --access-mode, --llms-txt")
+				return usageError("nothing to update: pass at least one of --name, --color, --access-mode, --listed, --llms-txt")
 			}
 			raw, err := a.request("PATCH", "/api/v1/workspaces/"+url.PathEscape(target), nil, body)
 			if err != nil {
 				return err
 			}
-			if a.g.jsonOut {
-				return a.printJSON(raw)
-			}
-			var ws workspaceRow
-			if err := json.Unmarshal(raw, &ws); err != nil {
-				return err
-			}
-			fmt.Fprintf(a.Out, "updated workspace %s\n", ws.ID)
-			return nil
+			return emitAs(a, raw, func(ws workspaceRow) error {
+				fmt.Fprintf(a.Out, "updated workspace %s\n", ws.ID)
+				return nil
+			})
 		},
 	}
 }
@@ -167,21 +159,21 @@ func cmdWorkspacesDelete() *Command {
 			fs.BoolVar(&yes, "yes", false, "skip the confirmation prompt")
 		},
 		Run: func(a *App, args []string) error {
-			if len(args) != 1 {
-				return usageError("expected exactly one WORKSPACE argument")
-			}
-			if err := a.confirm("delete workspace "+args[0]+" and ALL of its content", yes); err != nil {
-				return err
-			}
-			raw, err := a.request("DELETE", "/api/v1/workspaces/"+url.PathEscape(args[0]), nil, nil)
+			target, err := oneArg(args, "WORKSPACE")
 			if err != nil {
 				return err
 			}
-			if a.g.jsonOut {
-				return a.printJSON(raw)
+			if err := a.confirm("delete workspace "+target+" and ALL of its content", yes); err != nil {
+				return err
 			}
-			fmt.Fprintf(a.Out, "deleted workspace %s\n", args[0])
-			return nil
+			raw, err := a.request("DELETE", "/api/v1/workspaces/"+url.PathEscape(target), nil, nil)
+			if err != nil {
+				return err
+			}
+			return a.emit(raw, func() error {
+				fmt.Fprintf(a.Out, "deleted workspace %s\n", target)
+				return nil
+			})
 		},
 	}
 }
