@@ -5,7 +5,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,34 +23,38 @@ type Config struct {
 }
 
 type globals struct {
-	baseURL   string
-	token     string
 	workspace string
 	config    string
 	jsonOut   bool
 }
 
 func registerGlobals(fs *flag.FlagSet, g *globals) {
-	fs.StringVar(&g.baseURL, "base-url", "", "API base URL (default "+defaultBaseURL+")")
-	fs.StringVar(&g.token, "token", "", "agent key (prefer COWL_PAT or 'cowl auth login')")
-	fs.StringVar(&g.workspace, "workspace", "", "workspace id, or - for the key's bound workspace")
+	fs.StringVar(&g.workspace, "workspace", "", "workspace id, or - for the workspace the key is bound to")
 	fs.StringVar(&g.workspace, "w", "", "shorthand for --workspace")
-	fs.BoolVar(&g.jsonOut, "json", false, "print the raw API response as JSON")
-	fs.StringVar(&g.config, "config", "", "config file (default COWL_CONFIG or the user config dir)")
+	fs.BoolVar(&g.jsonOut, "json", false, "print the API response as JSON, also on a terminal")
+	fs.StringVar(&g.config, "config", "", "config file (default CONTEXTOWL_CONFIG, or contextowl/config.json in the user config dir)")
 }
+
+// Sources of a setting, as cowl doctor and the errors name them.
+const (
+	fromDefault = "default"
+	fromConfig  = "config"
+)
 
 // App is the per-invocation state: parsed flags resolved against environment
 // and config file, plus the HTTP client.
 type App struct {
 	IO
-	g       globals
-	fs      *flag.FlagSet
-	cfg     Config
-	cfgPath string
+	g        globals
+	fs       *flag.FlagSet
+	cfg      Config
+	cfgPath  string
+	cfgFound bool
 
 	baseURL   string
+	baseFrom  string
 	token     string
-	tokenFrom string // "flag" | "env" | "config" | ""
+	tokenFrom string
 	workspace string
 
 	http *http.Client
@@ -58,51 +64,144 @@ func (a *App) env(key string) string {
 	if a.Env == nil {
 		return ""
 	}
-	return a.Env(key)
+	return strings.TrimSpace(a.Env(key))
 }
 
-// resolve computes effective settings: flag > env > config file > default.
+// envFirst returns the first set variable of names and its source label.
+func (a *App) envFirst(names ...string) (string, string) {
+	for _, n := range names {
+		if v := a.env(n); v != "" {
+			return v, "env " + n
+		}
+	}
+	return "", ""
+}
+
+// resolve loads the config file and computes the effective settings:
+// environment first, then the config file, then the default.
 func (a *App) resolve() error {
+	if err := a.loadConfigFile(); err != nil {
+		return err
+	}
+	return a.applySettings()
+}
+
+func (a *App) loadConfigFile() error {
 	path, err := a.configPath()
 	if err != nil {
-		return err
+		return &cliError{code: "config_error", message: err.Error(), exit: exitError, cause: err}
 	}
 	a.cfgPath = path
 	cfg, err := loadConfig(path)
 	if err != nil {
-		return err
+		return &cliError{code: "config_error", message: err.Error(), exit: exitError, cause: err}
 	}
-	a.cfg = cfg
-
-	a.baseURL = firstOf(a.g.baseURL, a.env("COWL_BASE_URL"), cfg.BaseURL, defaultBaseURL)
-	a.baseURL = strings.TrimRight(a.baseURL, "/")
-
-	switch {
-	case a.g.token != "":
-		a.token, a.tokenFrom = a.g.token, "flag"
-	case a.env("COWL_PAT") != "":
-		a.token, a.tokenFrom = a.env("COWL_PAT"), "env"
-	case a.env("CONTEXTOWL_PAT") != "":
-		a.token, a.tokenFrom = a.env("CONTEXTOWL_PAT"), "env"
-	case cfg.Token != "":
-		a.token, a.tokenFrom = cfg.Token, "config"
-	}
-
-	a.workspace = firstOf(a.g.workspace, a.env("COWL_WORKSPACE"), cfg.Workspace, "-")
-	a.http = &http.Client{Timeout: 2 * time.Minute}
+	_, statErr := os.Stat(path)
+	a.cfg, a.cfgFound = cfg, statErr == nil
 	return nil
+}
+
+// applySettings resolves the key, the workspace and the base URL. The only
+// error is a base URL that is not valid. The key, the workspace and the
+// source of the base URL are set before that check, so cowl doctor and
+// cowl auth login can continue without a valid base URL.
+func (a *App) applySettings() error {
+	a.token, a.tokenFrom = a.envFirst("CONTEXTOWL_PAT", "COWL_PAT")
+	if a.token == "" && a.cfg.Token != "" {
+		a.token, a.tokenFrom = a.cfg.Token, fromConfig
+	}
+	ws, _ := a.envFirst("CONTEXTOWL_WORKSPACE", "COWL_WORKSPACE")
+	a.workspace = firstOf(a.g.workspace, ws, a.cfg.Workspace, "-")
+	a.http = &http.Client{Timeout: 2 * time.Minute}
+
+	base, from := a.envFirst("CONTEXTOWL_BASE_URL", "COWL_BASE_URL")
+	if base == "" && a.cfg.BaseURL != "" {
+		base, from = a.cfg.BaseURL, fromConfig
+	}
+	if base == "" {
+		base, from = defaultBaseURL, fromDefault
+	}
+	a.baseFrom = from
+	norm, err := normalizeBaseURL(base)
+	if err != nil {
+		msg := "the base URL from " + from + " " + err.Error()
+		if from == fromConfig {
+			msg += ". Run 'cowl auth login --base-url URL' to replace it"
+		}
+		return &cliError{code: "config_error", message: msg, exit: exitError}
+	}
+	a.baseURL = norm
+	return nil
+}
+
+// checkKey makes sure a key exists and goes only to a host it belongs to.
+// A saved key goes only to the base URL saved with it. A key from the
+// environment goes to the base URL from the environment, or to the default
+// host.
+func (a *App) checkKey() error {
+	if a.token == "" {
+		return noKeyError()
+	}
+	if a.tokenFrom == fromConfig {
+		saved, err := normalizeBaseURL(firstOf(a.cfg.BaseURL, defaultBaseURL))
+		if err != nil || saved != a.baseURL {
+			return &cliError{code: "untrusted_host", exit: exitAuth, message: fmt.Sprintf(
+				"the saved key belongs to %s, but %s sets the base URL to %s. Unset CONTEXTOWL_BASE_URL and COWL_BASE_URL, or run 'cowl auth login' for that host",
+				saved, a.baseFrom, a.baseURL)}
+		}
+		return nil
+	}
+	if a.baseFrom == fromConfig && a.baseURL != defaultBaseURL {
+		return &cliError{code: "untrusted_host", exit: exitAuth, message: fmt.Sprintf(
+			"the key from %s goes only to the default host or to CONTEXTOWL_BASE_URL, but the config file sets the base URL to %s. Set CONTEXTOWL_BASE_URL to the host of this key",
+			a.tokenFrom, a.baseURL)}
+	}
+	return nil
+}
+
+// normalizeBaseURL checks that s is an absolute http or https URL and removes
+// trailing slashes, so equal hosts compare equal.
+func normalizeBaseURL(s string) (string, error) {
+	s = strings.TrimRight(strings.TrimSpace(s), "/")
+	u, err := url.Parse(s)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", errors.New("must be an absolute http or https URL")
+	}
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return "", errors.New("must not contain credentials, a query or a fragment")
+	}
+	return strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host) + u.EscapedPath(), nil
+}
+
+// baseURLKind classifies a base URL without naming it, for cowl doctor.
+func baseURLKind(base string) string {
+	if base == defaultBaseURL {
+		return "default"
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return "custom"
+	}
+	host := u.Hostname()
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return "localhost"
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return "localhost"
+	}
+	return "custom"
 }
 
 func (a *App) configPath() (string, error) {
 	if a.g.config != "" {
 		return a.g.config, nil
 	}
-	if p := a.env("COWL_CONFIG"); p != "" {
+	if p, _ := a.envFirst("CONTEXTOWL_CONFIG", "COWL_CONFIG"); p != "" {
 		return p, nil
 	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
-		return "", fmt.Errorf("cannot locate config dir: %w (set COWL_CONFIG)", err)
+		return "", fmt.Errorf("cannot find the user config dir: %w. Set CONTEXTOWL_CONFIG", err)
 	}
 	return filepath.Join(dir, "contextowl", "config.json"), nil
 }

@@ -1,89 +1,112 @@
 package cli
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"net/url"
 	"strconv"
 )
 
-type searchRow struct {
-	Type    string  `json:"type"`
-	Slug    string  `json:"slug"`
-	Title   string  `json:"title"`
-	Snippet string  `json:"snippet"`
-	Score   float64 `json:"score"`
+type searchResponse struct {
+	Semantic    bool             `json:"semantic"`
+	Results     []searchHit      `json:"results"`
+	Suggestions []slugSuggestion `json:"suggestions"`
+}
+
+type searchHit struct {
+	Type    string   `json:"type"`
+	Slug    string   `json:"slug"`
+	ID      int64    `json:"id"`
+	Title   string   `json:"title"`
+	Status  string   `json:"status"`
+	Snippet string   `json:"snippet"`
+	URL     string   `json:"url"`
+	Score   *float64 `json:"score"`
+}
+
+type slugSuggestion struct {
+	Slug  string `json:"slug"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
+}
+
+// ref is the slug of an article hit, or the id of a changelog hit.
+func (h searchHit) ref() string {
+	if h.Slug != "" {
+		return h.Slug
+	}
+	if h.ID != 0 {
+		return strconv.FormatInt(h.ID, 10)
+	}
+	return "-"
 }
 
 func cmdSearch() *Command {
-	var semantic bool
+	var semantic, publishedOnly bool
 	var limit int
 	return &Command{
 		Name: "search", OpIDs: []string{"searchDocs"},
-		Summary: "Search a workspace's docs (full-text, or --semantic)",
-		Usage:   "cowl search QUERY [-w WORKSPACE] [--semantic] [--limit N]",
+		Summary: "Search a workspace's articles and changelog (full-text, or --semantic)",
+		Usage:   "cowl search QUERY [--limit N] [--semantic] [--published-only]",
 		Flags: func(fs *flag.FlagSet) {
-			fs.BoolVar(&semantic, "semantic", false, "rank by embedding similarity (falls back to full-text)")
-			fs.IntVar(&limit, "limit", 10, "max results for semantic search (max 50)")
+			fs.BoolVar(&semantic, "semantic", false, "rank by meaning. Without embeddings on the server, cowl gets full-text results")
+			fs.IntVar(&limit, "limit", 10, "max results, 1 to 50")
+			fs.BoolVar(&publishedOnly, "published-only", false, "leave out DRAFT and IN REVIEW articles")
 		},
 		Run: func(a *App, args []string) error {
 			query := joinArgs(args)
 			if query == "" {
 				return usageError("QUERY is required")
 			}
-			q := url.Values{"q": {query}}
+			if limit < 1 || limit > 50 {
+				return usageError("--limit must be 1 to 50")
+			}
+			q := url.Values{"q": {query}, "limit": {strconv.Itoa(limit)}}
 			if semantic {
 				q.Set("semantic", "true")
-				q.Set("limit", strconv.Itoa(limit))
+			}
+			if publishedOnly {
+				q.Set("published_only", "true")
 			}
 			raw, err := a.request("GET", a.ws()+"/search", q, nil)
 			if err != nil {
 				return err
 			}
-			if a.g.jsonOut {
-				return a.printJSON(raw)
-			}
-			var rows []searchRow
-			usedSemantic := false
-			if semantic {
-				var resp struct {
-					Semantic bool        `json:"semantic"`
-					Results  []searchRow `json:"results"`
+			return emitAs(a, raw, func(resp searchResponse) error {
+				if len(resp.Results) == 0 {
+					fmt.Fprintf(a.Out, "no results for %q\n", query)
+					if len(resp.Suggestions) > 0 {
+						fmt.Fprintln(a.Out, "\nclose titles:")
+						rows := make([][]string, 0, len(resp.Suggestions))
+						for _, s := range resp.Suggestions {
+							rows = append(rows, []string{s.Slug, s.Title, dash(s.URL)})
+						}
+						a.table([]string{"SLUG", "TITLE", "URL"}, rows)
+					}
+					return nil
 				}
-				if err := json.Unmarshal(raw, &resp); err != nil {
-					return err
+				headers := []string{"SLUG/ID", "TYPE", "STATUS", "TITLE", "SNIPPET", "URL"}
+				if resp.Semantic {
+					headers = append(headers, "SCORE")
 				}
-				rows, usedSemantic = resp.Results, resp.Semantic
-			} else if err := json.Unmarshal(raw, &rows); err != nil {
-				return err
-			}
-			// The server only takes limit for semantic search; honor the flag
-			// on the full-text path here.
-			if !semantic && a.flagWasSet("limit") && limit > 0 && len(rows) > limit {
-				rows = rows[:limit]
-			}
-			if len(rows) == 0 {
-				fmt.Fprintln(a.Out, "no results")
+				rows := make([][]string, 0, len(resp.Results))
+				for _, r := range resp.Results {
+					row := []string{r.ref(), r.Type, dash(r.Status), r.Title, dash(snippetText(r.Snippet)), dash(r.URL)}
+					if resp.Semantic {
+						score := "-"
+						if r.Score != nil {
+							score = strconv.FormatFloat(*r.Score, 'f', 3, 64)
+						}
+						row = append(row, score)
+					}
+					rows = append(rows, row)
+				}
+				a.table(headers, rows)
+				if semantic && !resp.Semantic {
+					fmt.Fprintln(a.Err, "note: semantic ranking is not available, so these are full-text results")
+				}
 				return nil
-			}
-			headers := []string{"SLUG", "TYPE", "TITLE", "SNIPPET"}
-			if usedSemantic {
-				headers = append(headers, "SCORE")
-			}
-			out := make([][]string, 0, len(rows))
-			for _, r := range rows {
-				row := []string{r.Slug, r.Type, r.Title, dash(snippetText(r.Snippet))}
-				if usedSemantic {
-					row = append(row, strconv.FormatFloat(r.Score, 'f', 3, 64))
-				}
-				out = append(out, row)
-			}
-			a.table(headers, out)
-			if semantic && !usedSemantic {
-				fmt.Fprintln(a.Err, "note: semantic ranking unavailable; showing full-text results")
-			}
-			return nil
+			})
 		},
 	}
 }

@@ -10,15 +10,15 @@ import (
 func allCommands() []*Command {
 	return []*Command{
 		cmdAuthLogin(), cmdAuthStatus(), cmdAuthLogout(),
+		cmdWhoami(), cmdDoctor(),
 		cmdWorkspacesList(), cmdWorkspacesCreate(), cmdWorkspacesUpdate(), cmdWorkspacesDelete(),
 		cmdArticlesList(), cmdArticlesGet(), cmdArticlesCreate(), cmdArticlesUpdate(), cmdArticlesPlace(),
-		cmdSectionsCreate(),
+		cmdSectionsList(), cmdSectionsCreate(),
 		cmdUploadsImage(),
-		cmdProposalsList(), cmdProposalsCreate(),
-		cmdChangelogList(), cmdChangelogCreate(), cmdChangelogUpdate(), cmdChangelogDelete(),
+		cmdProposalsList(), cmdProposalsGet(), cmdProposalsCreate(),
+		cmdChangelogList(), cmdChangelogGet(), cmdChangelogCreate(), cmdChangelogUpdate(), cmdChangelogDelete(),
 		cmdLandingGet(), cmdLandingAutofill(), cmdLandingSet(), cmdLandingPropose(),
-		cmdMemoryList(), cmdMemorySearch(), cmdMemoryGet(), cmdMemoryWrite(), cmdMemoryDelete(),
-		cmdOpenAPIStatus(), cmdOpenAPIAttach(), cmdOpenAPISync(), cmdOpenAPIDetach(),
+		cmdOpenAPIStatus(), cmdOpenAPISpec(), cmdOpenAPIAttach(), cmdOpenAPISync(), cmdOpenAPIDetach(),
 		cmdOpenAPIPages(), cmdOpenAPICreateSection(), cmdOpenAPIPlace(), cmdOpenAPIDetachPage(),
 		cmdSearch(),
 		cmdAPI(),
@@ -32,9 +32,15 @@ func cmdVersion() *Command {
 		Name:    "version",
 		Local:   true,
 		Summary: "Print the cowl version",
-		Usage:   "cowl version",
+		Usage:   "cowl version [--json]",
 		Run: func(a *App, args []string) error {
-			fmt.Fprintf(a.Out, "cowl %s %s/%s\n", Version, runtime.GOOS, runtime.GOARCH)
+			if err := noArgs(args); err != nil {
+				return err
+			}
+			if a.jsonOut() {
+				return a.printValue(map[string]string{"version": version(), "os": runtime.GOOS, "arch": runtime.GOARCH})
+			}
+			fmt.Fprintf(a.Out, "cowl %s %s/%s\n", version(), runtime.GOOS, runtime.GOARCH)
 			return nil
 		},
 	}

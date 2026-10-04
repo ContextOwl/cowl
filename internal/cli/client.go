@@ -22,17 +22,12 @@ type APIError struct {
 	Code       string
 	Message    string
 	StatusCode int
-	// MissingToken marks errors that are really "no token": the server's
-	// CSRF layer rejects tokenless writes as cross_origin before auth runs.
-	MissingToken bool
+	Details    json.RawMessage
+	envelope   []byte
 }
 
 func (e *APIError) Error() string {
-	msg := fmt.Sprintf("%s: %s", e.Code, e.Message)
-	if e.StatusCode == http.StatusUnauthorized || e.MissingToken {
-		msg += " (run 'cowl auth login' or set COWL_PAT)"
-	}
-	return msg
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
 }
 
 // request performs one API call and returns the raw response body.
@@ -69,10 +64,6 @@ func (a *App) requestPayload(method, path string, query url.Values, payload []by
 	if retryAfter > 0 {
 		sleepFn(retryAfter)
 		raw, _, err = a.doWithContentType(method, path, query, payload, contentType)
-	}
-	var apiErr *APIError
-	if errors.As(err, &apiErr) && apiErr.Code == "cross_origin" && a.token == "" {
-		apiErr.MissingToken = true
 	}
 	return raw, err
 }
@@ -118,15 +109,15 @@ func (a *App) doWithContentType(method, path string, query url.Values, payload [
 	if a.token != "" {
 		req.Header.Set("Authorization", "Bearer "+a.token)
 	}
-	req.Header.Set("User-Agent", fmt.Sprintf("cowl/%s (%s/%s)", Version, runtime.GOOS, runtime.GOARCH))
+	req.Header.Set("User-Agent", fmt.Sprintf("cowl/%s (%s/%s)", version(), runtime.GOOS, runtime.GOARCH))
 	resp, err := a.http.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("request %s: %w", a.baseURL, err)
+		return nil, 0, networkError(a.baseURL, err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if err != nil {
-		return nil, 0, fmt.Errorf("read response: %w", err)
+		return nil, 0, networkError(a.baseURL, err)
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return raw, 0, nil
@@ -137,10 +128,25 @@ func (a *App) doWithContentType(method, path string, query url.Values, payload [
 	return nil, 0, apiErrorFrom(raw, resp.StatusCode)
 }
 
+func networkError(base string, err error) error {
+	inner := err
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		inner = ue.Err
+	}
+	return &cliError{code: "network_error", message: "cannot reach " + base + ": " + inner.Error(), exit: exitServer, cause: err}
+}
+
 func apiErrorFrom(raw []byte, status int) *APIError {
-	var env errorEnvelope
+	var env struct {
+		Error struct {
+			Code    string          `json:"code"`
+			Message string          `json:"message"`
+			Details json.RawMessage `json:"details"`
+		} `json:"error"`
+	}
 	if err := json.Unmarshal(raw, &env); err == nil && env.Error.Code != "" {
-		return &APIError{Code: env.Error.Code, Message: env.Error.Message, StatusCode: status}
+		return &APIError{Code: env.Error.Code, Message: env.Error.Message, StatusCode: status, Details: env.Error.Details, envelope: raw}
 	}
 	msg := strings.TrimSpace(string(raw))
 	if msg == "" {
