@@ -47,7 +47,9 @@ The skill tells the agent to search before it answers, to read single sections, 
 
 ## Agent mode
 
-When stdout is not a terminal, each command that prints a table or a receipt prints the REST response as one line of JSON. Add `--json` to get JSON on a terminal. `cowl articles get`, `cowl changelog get` and `cowl openapi spec` print their content in both cases.
+When stdout is not a terminal, each command that prints a table or a receipt prints one line of JSON instead. For an API command, the line is the REST response body. Add `--json` to get the same line on a terminal.
+
+`cowl articles get`, `cowl changelog get` and `cowl openapi spec` print their content in both cases. With `--json`, the first two print the REST object. `cowl openapi spec --json` prints `{"format":"yaml","spec":"..."}` with the stored spec as one string, because a YAML spec is not JSON.
 
 When stderr is not a terminal, an error is one JSON line in the error envelope of the API:
 

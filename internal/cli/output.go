@@ -16,8 +16,9 @@ func (a *App) jsonOut() bool {
 	return a.g.jsonOut || !a.OutTTY
 }
 
-// printJSON writes a JSON body: indented on a terminal, one compact line
-// otherwise. A body that is not JSON is written as it is.
+// printJSON writes a JSON body. With --json and in a pipe, the body is one
+// compact line. On a terminal without --json, it is indented for a person.
+// A body that is not JSON is written as it is.
 func (a *App) printJSON(raw []byte) error {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 {
@@ -25,10 +26,10 @@ func (a *App) printJSON(raw []byte) error {
 	}
 	var buf bytes.Buffer
 	var err error
-	if a.OutTTY {
-		err = json.Indent(&buf, raw, "", "  ")
-	} else {
+	if a.jsonOut() {
 		err = json.Compact(&buf, raw)
+	} else {
+		err = json.Indent(&buf, raw, "", "  ")
 	}
 	if err != nil {
 		buf.Reset()

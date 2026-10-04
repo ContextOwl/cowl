@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/url"
@@ -25,11 +26,18 @@ func cmdOpenAPIStatus() *Command {
 	}
 }
 
+// openAPISpec is the --json output of 'cowl openapi spec'. The REST body is
+// the stored spec, and a YAML spec is not JSON, so cowl wraps the text.
+type openAPISpec struct {
+	Format string `json:"format"`
+	Spec   string `json:"spec"`
+}
+
 func cmdOpenAPISpec() *Command {
 	return &Command{
 		Group: "openapi", Name: "spec", OpIDs: []string{"getOpenAPISpec"},
-		Summary: "Print the stored OpenAPI spec as it was attached (JSON or YAML)",
-		Usage:   "cowl openapi spec [-w WORKSPACE]",
+		Summary: `Print the stored OpenAPI spec as it was attached. --json wraps it in {"format","spec"}`,
+		Usage:   "cowl openapi spec [-w WORKSPACE] [--json]",
 		Run: func(a *App, args []string) error {
 			if err := noArgs(args); err != nil {
 				return err
@@ -37,6 +45,13 @@ func cmdOpenAPISpec() *Command {
 			raw, err := a.request("GET", a.ws()+"/openapi/spec", nil, nil)
 			if err != nil {
 				return err
+			}
+			if a.g.jsonOut {
+				format := "yaml"
+				if json.Valid(raw) {
+					format = "json"
+				}
+				return a.printValue(openAPISpec{Format: format, Spec: string(raw)})
 			}
 			if _, err := a.Out.Write(raw); err != nil {
 				return err

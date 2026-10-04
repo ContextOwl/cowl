@@ -37,7 +37,7 @@ func cmdVersion() *Command {
 			if err := noArgs(args); err != nil {
 				return err
 			}
-			if a.g.jsonOut {
+			if a.jsonOut() {
 				return a.printValue(map[string]string{"version": version(), "os": runtime.GOOS, "arch": runtime.GOARCH})
 			}
 			fmt.Fprintf(a.Out, "cowl %s %s/%s\n", version(), runtime.GOOS, runtime.GOARCH)

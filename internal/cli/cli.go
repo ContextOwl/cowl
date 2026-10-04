@@ -211,8 +211,10 @@ global flags: -w, --workspace ID  --json  --config PATH
 environment:  CONTEXTOWL_PAT, CONTEXTOWL_WORKSPACE, CONTEXTOWL_BASE_URL, CONTEXTOWL_CONFIG
               The COWL_* names of these variables also work.
 
-When stdout is not a terminal, cowl prints JSON. When stderr is not a
-terminal, an error is one JSON line: {"error":{"code","message","status"}}.
+When stdout is not a terminal, or with --json, a command that prints a table
+or a receipt prints one line of JSON. articles get, changelog get and
+openapi spec print their content, and JSON only with --json. When stderr is
+not a terminal, an error is one JSON line: {"error":{"code","message","status"}}.
 
 exit codes:
   0  success

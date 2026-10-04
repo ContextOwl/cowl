@@ -791,17 +791,10 @@ func TestUploadsImage(t *testing.T) {
 
 func TestJSONOutputModes(t *testing.T) {
 	resp := `[{"slug":"intro","title":"Intro","section":"G","nav":"g","status":"DRAFT","encrypted":false}]`
-	f := &fakeAPI{body: resp}
-	out, _, code := run(t, f, []string{"articles", "list", "--json"}, runOpts{term: true})
-	if code != 0 {
-		t.Fatal("exit != 0")
-	}
-	if !strings.Contains(out, "\n  {\n") {
-		t.Errorf("--json on a terminal prints indented JSON:\n%s", out)
-	}
-	var parsed []map[string]any
-	if err := json.Unmarshal([]byte(out), &parsed); err != nil || parsed[0]["slug"] != "intro" {
-		t.Errorf("--json output is not the response: %v\n%s", err, out)
+	f := &fakeAPI{body: "[\n  " + resp[1:len(resp)-1] + "\n]\n"}
+	out, errOut, code := run(t, f, []string{"articles", "list", "--json"}, runOpts{term: true})
+	if code != 0 || out != resp+"\n" {
+		t.Errorf("--json on a terminal prints the response as one compact line: exit=%d stderr=%s\n%q", code, errOut, out)
 	}
 	out, _, _ = run(t, f, []string{"articles", "list"}, runOpts{})
 	if out != resp+"\n" {
@@ -810,6 +803,52 @@ func TestJSONOutputModes(t *testing.T) {
 	out, _, _ = run(t, f, []string{"articles", "list"}, runOpts{outTTY: true})
 	if !strings.HasPrefix(out, "SLUG") {
 		t.Errorf("a terminal gets a table:\n%s", out)
+	}
+
+	status := `{"configured":true,"specFormat":"yaml"}`
+	f = &fakeAPI{body: status}
+	out, _, _ = run(t, f, []string{"openapi", "status"}, runOpts{term: true})
+	if !strings.Contains(out, "{\n  \"configured\": true,\n") {
+		t.Errorf("a JSON command on a terminal prints indented JSON for a person:\n%s", out)
+	}
+	out, _, _ = run(t, f, []string{"openapi", "status", "--json"}, runOpts{term: true})
+	if out != status+"\n" {
+		t.Errorf("--json on a terminal prints one compact line: %q", out)
+	}
+
+	f = &fakeAPI{status: http.StatusNoContent}
+	out, _, _ = run(t, f, []string{"api", "DELETE", "workspaces/-/changelog/7"}, runOpts{term: true})
+	if out != "ok\n" {
+		t.Errorf("an empty body on a terminal prints ok: %q", out)
+	}
+	out, _, _ = run(t, f, []string{"api", "DELETE", "workspaces/-/changelog/7", "--json"}, runOpts{term: true})
+	if out != "" {
+		t.Errorf("an empty body with --json prints nothing: %q", out)
+	}
+}
+
+func TestOpenAPISpecJSON(t *testing.T) {
+	tests := []struct{ name, body, format string }{
+		{"yaml", "openapi: 3.1.0\ninfo:\n  title: API <v1>\n", "yaml"},
+		{"json", `{"openapi":"3.1.0","info":{"title":"API"}}`, "json"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &fakeAPI{body: tt.body}
+			for _, opts := range []runOpts{{}, {term: true}} {
+				out, errOut, code := run(t, f, []string{"openapi", "spec", "--json"}, opts)
+				if code != 0 {
+					t.Fatalf("exit %d: %s", code, errOut)
+				}
+				var got openAPISpec
+				if err := json.Unmarshal([]byte(out), &got); err != nil || strings.Count(out, "\n") != 1 || got.Format != tt.format || got.Spec != tt.body {
+					t.Errorf("terminal=%v: want one JSON line with format %s and the stored text, got %v\n%q", opts.term, tt.format, err, out)
+				}
+			}
+			if req := lastReq(t, f); req.Method != "GET" || req.Path != "/api/v1/workspaces/-/openapi/spec" {
+				t.Errorf("request = %s %s", req.Method, req.Path)
+			}
+		})
 	}
 }
 
@@ -897,14 +936,23 @@ func TestOpenAPIDetachPromptNamesTheDeletion(t *testing.T) {
 
 func TestVersionAndCompletion(t *testing.T) {
 	f := &fakeAPI{}
-	out, _, code := run(t, f, []string{"version"}, runOpts{})
+	out, _, code := run(t, f, []string{"version"}, runOpts{term: true})
 	if code != 0 || !strings.HasPrefix(out, "cowl ") {
-		t.Errorf("version: exit=%d out=%q", code, out)
+		t.Errorf("version on a terminal: exit=%d out=%q", code, out)
 	}
-	out, _, code = run(t, f, []string{"version", "--json"}, runOpts{})
-	var v map[string]string
-	if code != 0 || json.Unmarshal([]byte(out), &v) != nil || v["version"] == "" || v["os"] == "" {
-		t.Errorf("version --json: exit=%d out=%q", code, out)
+	for _, tt := range []struct {
+		name string
+		args []string
+		opts runOpts
+	}{
+		{"version in a pipe", []string{"version"}, runOpts{}},
+		{"version --json on a terminal", []string{"version", "--json"}, runOpts{term: true}},
+	} {
+		out, _, code = run(t, f, tt.args, tt.opts)
+		var v map[string]string
+		if code != 0 || strings.Count(out, "\n") != 1 || json.Unmarshal([]byte(out), &v) != nil || v["version"] == "" || v["os"] == "" || v["arch"] == "" {
+			t.Errorf("%s prints one JSON line: exit=%d out=%q", tt.name, code, out)
+		}
 	}
 	for _, shell := range []string{"bash", "zsh", "fish"} {
 		out, _, code = run(t, f, []string{"completion", shell}, runOpts{})
