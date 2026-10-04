@@ -506,6 +506,24 @@ func TestCommands(t *testing.T) {
 			wantTerm: []string{`no results for "api kyes"`, "close titles", "api-keys", "Agent Keys"},
 		},
 		{
+			name: "insights", args: []string{"insights", "-w", "platform"},
+			response: `{"days":30,"recordsQueries":true,"calls":21,"searches":12,"reads":8,"unansweredSearches":7,"unansweredShare":58,"keys":2,` +
+				`"questions":[{"query":"sso with okta","count":3,"unanswered":3,"lastSeen":"2026-10-04T16:20:00Z"}],` +
+				`"unanswered":[{"query":"sso with okta","count":3,"unanswered":3,"lastSeen":"2026-10-04T16:20:00Z"}],` +
+				`"mostRead":[{"slug":"mcp","title":"MCP Quickstart","agentReads":3,"humanViews":40}],` +
+				`"clients":[{"label":"claude-code","value":11,"bar":100}],"keyLabels":[{"label":"laptop","value":11,"bar":100}]}`,
+			wantMethod: "GET", wantPath: "/api/v1/workspaces/platform/agent-insights",
+			wantTerm: []string{"last 30 days: 21 calls, 12 searches, 8 reads, 2 keys. 58% of searches unanswered (7).",
+				"unanswered:", "QUESTION", "LAST SEEN", "sso with okta", "2026-10-04 16:20",
+				"most read by agents:", "MCP Quickstart", "AGENT READS", "40", "clients:", "claude-code", "keys:", "laptop"},
+		},
+		{
+			name: "insights without traffic", args: []string{"insights"},
+			response:   `{"days":30,"recordsQueries":true,"calls":0,"searches":0,"reads":0,"unansweredSearches":0,"unansweredShare":0,"keys":0,"questions":[],"unanswered":[],"mostRead":[],"clients":[],"keyLabels":[]}`,
+			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/agent-insights",
+			wantTerm: []string{"no agent calls in the last 30 days"},
+		},
+		{
 			name: "whoami", args: []string{"whoami"},
 			response:   meJSON,
 			wantMethod: "GET", wantPath: "/api/v1/me",
@@ -1073,7 +1091,7 @@ func TestHelp(t *testing.T) {
 func TestRESTOpIDs(t *testing.T) {
 	want := []string{
 		"attachOpenAPI", "autofillLanding", "createArticle", "createChangelog", "createOpenAPISection", "createSection",
-		"createWorkspace", "deleteChangelog", "deleteWorkspace", "detachOpenAPI", "detachOpenAPIPage", "getArticle",
+		"createWorkspace", "deleteChangelog", "deleteWorkspace", "detachOpenAPI", "detachOpenAPIPage", "getAgentInsights", "getArticle",
 		"getChangelog", "getLanding", "getMe", "getOpenAPISpec", "getOpenAPIStatus", "listArticles", "listChangelog",
 		"listOpenAPIPages", "listProposals", "listSections", "listWorkspaces", "placeArticle", "placeOpenAPIPage",
 		"proposeArticleEdit", "proposeLandingEdit", "searchDocs", "setLanding", "syncOpenAPI", "updateArticle",
@@ -1101,3 +1119,24 @@ func TestRetryDelayForms(t *testing.T) {
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+func TestInsightsNotesWhenSearchTextIsOff(t *testing.T) {
+	f := &fakeAPI{body: `{"days":30,"recordsQueries":false,"calls":4,"searches":2,"reads":2,"unansweredSearches":1,"unansweredShare":50,"keys":1,"questions":[],"unanswered":[],"mostRead":[],"clients":[],"keyLabels":[]}`}
+	out, errOut, code := run(t, f, []string{"insights"}, runOpts{term: true})
+	if code != 0 {
+		t.Fatalf("exit %d, stderr: %s", code, errOut)
+	}
+	if !strings.Contains(out, "4 calls, 2 searches, 2 reads, 1 key.") || !strings.Contains(errOut, "does not save agent search text") {
+		t.Fatalf("stdout %q, stderr %q, want the totals and the note", out, errOut)
+	}
+}
+
+func TestInsightsRejectsArguments(t *testing.T) {
+	f := &fakeAPI{}
+	if _, _, code := run(t, f, []string{"insights", "extra"}, runOpts{}); code != 2 {
+		t.Fatalf("exit %d, want 2 for a usage error", code)
+	}
+	if n := len(f.requests()); n != 0 {
+		t.Fatalf("requests = %d, want 0", n)
+	}
+}

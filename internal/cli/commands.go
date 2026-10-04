@@ -20,7 +20,7 @@ func allCommands() []*Command {
 		cmdLandingGet(), cmdLandingAutofill(), cmdLandingSet(), cmdLandingPropose(),
 		cmdOpenAPIStatus(), cmdOpenAPISpec(), cmdOpenAPIAttach(), cmdOpenAPISync(), cmdOpenAPIDetach(),
 		cmdOpenAPIPages(), cmdOpenAPICreateSection(), cmdOpenAPIPlace(), cmdOpenAPIDetachPage(),
-		cmdSearch(),
+		cmdSearch(), cmdInsights(),
 		cmdAPI(),
 		cmdVersion(),
 		cmdCompletion(),
