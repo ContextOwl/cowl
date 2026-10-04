@@ -907,6 +907,24 @@ func TestUpdateClearsMarkdownWithExplicitEmpty(t *testing.T) {
 	}
 }
 
+func TestArticleStatusCaseAndSpaces(t *testing.T) {
+	f := &fakeAPI{body: `{"slug":"intro","status":"IN REVIEW","changed":["status"]}`}
+	_, errOut, code := run(t, f, []string{"articles", "update", "intro", "--status", " in  review "}, runOpts{})
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if got := decodeBody(t, lastReq(t, f).Body)["status"]; got != "IN REVIEW" {
+		t.Errorf("articles update sent status %v, want IN REVIEW", got)
+	}
+	f = &fakeAPI{body: `[]`}
+	if _, errOut, code = run(t, f, []string{"articles", "list", "--status", "stable,in  review"}, runOpts{}); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if got := lastReq(t, f).Query; got != "status=STABLE%2CIN+REVIEW" {
+		t.Errorf("articles list query = %q, want the same normalized statuses", got)
+	}
+}
+
 func TestConfirmPromptTTY(t *testing.T) {
 	f := &fakeAPI{body: `{"deleted":7}`}
 	_, errOut, code := run(t, f, []string{"changelog", "delete", "7"}, runOpts{stdin: "n\n", tty: true})

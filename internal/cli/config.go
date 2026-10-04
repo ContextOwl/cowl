@@ -101,20 +101,11 @@ func (a *App) loadConfigFile() error {
 	return nil
 }
 
+// applySettings resolves the key, the workspace and the base URL. The only
+// error is a base URL that is not valid. The key, the workspace and the
+// source of the base URL are set before that check, so cowl doctor and
+// cowl auth login can continue without a valid base URL.
 func (a *App) applySettings() error {
-	base, from := a.envFirst("CONTEXTOWL_BASE_URL", "COWL_BASE_URL")
-	if base == "" && a.cfg.BaseURL != "" {
-		base, from = a.cfg.BaseURL, fromConfig
-	}
-	if base == "" {
-		base, from = defaultBaseURL, fromDefault
-	}
-	norm, err := normalizeBaseURL(base)
-	if err != nil {
-		return &cliError{code: "config_error", message: "the base URL from " + from + " " + err.Error(), exit: exitError}
-	}
-	a.baseURL, a.baseFrom = norm, from
-
 	a.token, a.tokenFrom = a.envFirst("CONTEXTOWL_PAT", "COWL_PAT")
 	if a.token == "" && a.cfg.Token != "" {
 		a.token, a.tokenFrom = a.cfg.Token, fromConfig
@@ -122,6 +113,24 @@ func (a *App) applySettings() error {
 	ws, _ := a.envFirst("CONTEXTOWL_WORKSPACE", "COWL_WORKSPACE")
 	a.workspace = firstOf(a.g.workspace, ws, a.cfg.Workspace, "-")
 	a.http = &http.Client{Timeout: 2 * time.Minute}
+
+	base, from := a.envFirst("CONTEXTOWL_BASE_URL", "COWL_BASE_URL")
+	if base == "" && a.cfg.BaseURL != "" {
+		base, from = a.cfg.BaseURL, fromConfig
+	}
+	if base == "" {
+		base, from = defaultBaseURL, fromDefault
+	}
+	a.baseFrom = from
+	norm, err := normalizeBaseURL(base)
+	if err != nil {
+		msg := "the base URL from " + from + " " + err.Error()
+		if from == fromConfig {
+			msg += ". Run 'cowl auth login --base-url URL' to replace it"
+		}
+		return &cliError{code: "config_error", message: msg, exit: exitError}
+	}
+	a.baseURL = norm
 	return nil
 }
 

@@ -35,12 +35,18 @@ type articleRow struct {
 	URL        string    `json:"url"`
 }
 
+// normalizeStatus upper-cases an article status and collapses its spaces, so
+// "in  review" becomes "IN REVIEW".
+func normalizeStatus(s string) string {
+	return strings.ToUpper(strings.Join(strings.Fields(s), " "))
+}
+
 // statusFilter normalizes a comma-separated --status value for the
 // listArticles filter.
 func statusFilter(s string) (string, error) {
 	parts := csv(s)
 	for i, p := range parts {
-		p = strings.ToUpper(strings.Join(strings.Fields(p), " "))
+		p = normalizeStatus(p)
 		if !validArticleStatuses[p] {
 			return "", usageError("--status takes a comma-separated list of " + articleStatusList + ", got " + parts[i])
 		}
@@ -267,10 +273,11 @@ func cmdArticlesUpdate() *Command {
 				body["section"] = opts.section
 			}
 			if a.flagWasSet("status") {
-				if !validArticleStatuses[opts.status] {
-					return usageError("--status must be one of " + articleStatusList)
+				status := normalizeStatus(opts.status)
+				if !validArticleStatuses[status] {
+					return usageError("--status must be one of " + articleStatusList + ", got " + opts.status)
 				}
-				body["status"] = opts.status
+				body["status"] = status
 			}
 			if a.flagWasSet("visibility") {
 				if !validArticleVisibilities[opts.visibility] {

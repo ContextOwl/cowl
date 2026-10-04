@@ -93,15 +93,15 @@ func cmdAuthLogin() *Command {
 				}
 				replaced = true
 			}
-			if err := a.applySettings(); err != nil {
-				return err
-			}
+			settingsErr := a.applySettings()
 			if a.flagWasSet("base-url") {
 				norm, err := normalizeBaseURL(baseURL)
 				if err != nil {
 					return usageError("--base-url " + err.Error())
 				}
 				a.baseURL, a.baseFrom = norm, "flag"
+			} else if settingsErr != nil {
+				return settingsErr
 			}
 			token, err := readToken(a, withToken)
 			if err != nil {
@@ -127,20 +127,23 @@ func cmdAuthLogin() *Command {
 			if err := saveConfig(a.cfgPath, cfg); err != nil {
 				return err
 			}
-			return a.emit(raw, func() error {
+			if err := a.emit(raw, func() error {
 				fmt.Fprintf(a.Out, "logged in to %s with key %q (%s), saved to %s\n",
 					a.baseURL, me.Key.Name, keyLabel(me, token), a.cfgPath)
 				if ws != "" {
 					fmt.Fprintf(a.Out, "default workspace: %s\n", ws)
 				}
-				if note != "" {
-					fmt.Fprintf(a.Err, "note: %s\n", note)
-				}
-				if replaced {
-					fmt.Fprintln(a.Err, "note: the old config file was not valid, so cowl replaced it")
-				}
 				return nil
-			})
+			}); err != nil {
+				return err
+			}
+			if note != "" {
+				fmt.Fprintf(a.Err, "note: %s\n", note)
+			}
+			if replaced {
+				fmt.Fprintln(a.Err, "note: the old config file was not valid, so cowl replaced it")
+			}
+			return nil
 		},
 	}
 }

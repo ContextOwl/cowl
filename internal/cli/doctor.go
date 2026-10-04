@@ -72,17 +72,24 @@ func (a *App) diagnose() doctorReport {
 	} else if !a.cfgFound {
 		rep.Config = "none"
 	}
-	if err := a.applySettings(); err != nil {
-		rep.BaseURL = "invalid"
-		rep.note("The base URL is not an absolute http or https URL. Check CONTEXTOWL_BASE_URL and COWL_BASE_URL.")
-		return rep
-	}
-	rep.BaseURL = baseURLKind(a.baseURL)
+	baseErr := a.applySettings()
 	if a.tokenFrom != "" {
 		rep.Token = a.tokenFrom
 	}
+	switch {
+	case baseErr == nil:
+		rep.BaseURL = baseURLKind(a.baseURL)
+	case a.baseFrom == fromConfig:
+		rep.BaseURL = "invalid"
+		rep.note("The base URL in the config file is not valid. Run 'cowl auth login --base-url URL' to replace it.")
+	default:
+		rep.BaseURL = "invalid"
+		rep.note("CONTEXTOWL_BASE_URL or COWL_BASE_URL is not a valid base URL. Set an absolute http or https URL without credentials, a query or a fragment.")
+	}
 	if a.token == "" {
 		rep.note("No agent key. Run 'cowl auth login', or set CONTEXTOWL_PAT.")
+	}
+	if baseErr != nil || a.token == "" {
 		return rep
 	}
 	if err := a.checkKey(); err != nil {

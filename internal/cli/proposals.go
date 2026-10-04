@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 	"time"
@@ -81,7 +82,8 @@ func cmdProposalsGet() *Command {
 				return invalidResponse(err)
 			}
 			if len(rows) == 0 {
-				return &cliError{code: "not_found", message: "no proposal " + id + " in this workspace for this key", exit: exitNotFound}
+				return &APIError{Code: "not_found", StatusCode: http.StatusNotFound,
+					Message: "there is no proposal " + id + " in this workspace. Run 'cowl proposals list --status all' to see the proposals"}
 			}
 			return a.emit(raw, func() error {
 				p := rows[0]

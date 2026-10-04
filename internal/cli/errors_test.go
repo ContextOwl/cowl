@@ -202,7 +202,11 @@ func TestLocalErrorsUseTheEnvelope(t *testing.T) {
 func TestEmptyProposalResultIsNotFound(t *testing.T) {
 	f := &fakeAPI{body: `[]`}
 	_, errOut, code := run(t, f, []string{"proposals", "get", "77"}, runOpts{})
-	if got := decodeEnvelope(t, errOut); code != exitNotFound || got.Code != "not_found" {
-		t.Errorf("exit=%d envelope=%+v", code, got)
+	if got := decodeEnvelope(t, errOut); code != exitNotFound || got.Code != "not_found" || got.Status != http.StatusNotFound {
+		t.Errorf("the status must agree with exit 3: exit=%d envelope=%+v", code, got)
+	}
+	_, errOut, code = run(t, f, []string{"proposals", "get", "77"}, runOpts{term: true})
+	if code != exitNotFound || !strings.Contains(errOut, "cowl: not_found: there is no proposal 77 in this workspace") {
+		t.Errorf("terminal: exit=%d stderr=%q", code, errOut)
 	}
 }

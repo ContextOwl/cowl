@@ -164,20 +164,58 @@ func TestAuthLoginFailures(t *testing.T) {
 }
 
 func TestAuthLoginReplacesACorruptConfig(t *testing.T) {
-	cfgPath := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(cfgPath, []byte("{not json"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	f := &fakeAPI{body: meJSON}
 	url := serve(t, f)
-	_, errOut, code := runAt(t, url, []string{"auth", "login", "--with-token", "--base-url", url}, runOpts{
-		stdin: "cowl_pat_new\n", env: noEnvKey(cfgPath), term: true,
-	})
-	if code != 0 || !strings.Contains(errOut, "the old config file was not valid") {
-		t.Fatalf("exit=%d stderr=%q", code, errOut)
+	for _, terminal := range []bool{true, false} {
+		cfgPath := filepath.Join(t.TempDir(), "config.json")
+		if err := os.WriteFile(cfgPath, []byte("{not json"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, errOut, code := runAt(t, url, []string{"auth", "login", "--with-token", "--base-url", url}, runOpts{
+			stdin: "cowl_pat_new\n", env: noEnvKey(cfgPath), term: terminal,
+		})
+		if code != 0 || !strings.Contains(errOut, "note: the old config file was not valid") {
+			t.Fatalf("terminal=%v: exit=%d stderr=%q", terminal, code, errOut)
+		}
+		if cfg, err := loadConfig(cfgPath); err != nil || cfg.Token != "cowl_pat_new" {
+			t.Errorf("config = %+v, %v", cfg, err)
+		}
 	}
-	if cfg, err := loadConfig(cfgPath); err != nil || cfg.Token != "cowl_pat_new" {
-		t.Errorf("config = %+v, %v", cfg, err)
+}
+
+func TestAuthLoginNotesReachAPipe(t *testing.T) {
+	cfgPath := writeConfig(t, Config{Workspace: "old"})
+	f := &fakeAPI{body: meJSON}
+	url := serve(t, f)
+	out, errOut, code := runAt(t, url, []string{"auth", "login", "--with-token", "--base-url", url}, runOpts{
+		stdin: "cowl_pat_new\n", env: noEnvKey(cfgPath),
+	})
+	if code != 0 || out != meJSON+"\n" {
+		t.Fatalf("a pipe gets the getMe body: exit=%d out=%q stderr=%q", code, out, errOut)
+	}
+	if errOut != "note: the saved workspace old is not reachable with this key, so cowl removed it\n" {
+		t.Errorf("a pipe must get the note on stderr: %q", errOut)
+	}
+	if cfg, _ := loadConfig(cfgPath); cfg.Workspace != "" {
+		t.Errorf("saved workspace = %q, want none", cfg.Workspace)
+	}
+}
+
+func TestAuthLoginReplacesAnInvalidSavedBaseURL(t *testing.T) {
+	cfgPath := writeConfig(t, Config{Token: "cowl_pat_old", BaseURL: "ftp://saved.example"})
+	f := &fakeAPI{body: meJSON}
+	url := serve(t, f)
+	_, errOut, code := runAt(t, url, []string{"auth", "login", "--with-token"}, runOpts{stdin: "cowl_pat_new\n", env: noEnvKey(cfgPath)})
+	if got := decodeEnvelope(t, errOut); code != exitError || got.Code != "config_error" ||
+		!strings.Contains(got.Message, "Run 'cowl auth login --base-url URL' to replace it") || len(f.requests()) != 0 {
+		t.Errorf("without --base-url: exit=%d envelope=%+v", code, got)
+	}
+	_, errOut, code = runAt(t, url, []string{"auth", "login", "--with-token", "--base-url", url}, runOpts{stdin: "cowl_pat_new\n", env: noEnvKey(cfgPath)})
+	if code != 0 {
+		t.Fatalf("--base-url replaces the invalid saved base URL: exit %d: %s", code, errOut)
+	}
+	if cfg, _ := loadConfig(cfgPath); cfg.BaseURL != url || cfg.Token != "cowl_pat_new" {
+		t.Errorf("config = %+v, want the new key and %s", cfg, url)
 	}
 }
 
@@ -458,6 +496,30 @@ func TestDoctor(t *testing.T) {
 		rep := doctorJSON(t, out)
 		if code != 0 || rep.Token != "config" || rep.API.Result != "skipped" || len(f.requests()) != 0 || strings.Contains(out, "saved.example") {
 			t.Errorf("exit=%d report=%+v", code, rep)
+		}
+	})
+	t.Run("invalid base URL in the environment", func(t *testing.T) {
+		out, _, code := runAt(t, "not a url", []string{"doctor"}, runOpts{})
+		rep := doctorJSON(t, out)
+		if code != 0 || rep.BaseURL != "invalid" || rep.Token != "env CONTEXTOWL_PAT" || rep.API.Result != "skipped" ||
+			len(rep.Notes) != 1 || !strings.Contains(rep.Notes[0], "CONTEXTOWL_BASE_URL") || strings.Contains(out, "not a url") {
+			t.Errorf("the report must name the key source and the bad variable: exit=%d report=%+v", code, rep)
+		}
+	})
+	t.Run("invalid base URL in the config file", func(t *testing.T) {
+		cfgPath := writeConfig(t, Config{Token: "cowl_pat_c", BaseURL: "ftp://saved.example"})
+		out, _, code := runAt(t, "", []string{"doctor"}, runOpts{env: noEnvKey(cfgPath)})
+		rep := doctorJSON(t, out)
+		if code != 0 || rep.BaseURL != "invalid" || rep.Token != "config" || rep.API.Result != "skipped" ||
+			len(rep.Notes) != 1 || !strings.Contains(rep.Notes[0], "cowl auth login --base-url") || strings.Contains(out, "saved.example") {
+			t.Errorf("the report must point to the config file: exit=%d report=%+v", code, rep)
+		}
+	})
+	t.Run("invalid base URL and no key", func(t *testing.T) {
+		out, _, code := runAt(t, "not a url", []string{"doctor"}, runOpts{env: map[string]string{"CONTEXTOWL_PAT": ""}})
+		rep := doctorJSON(t, out)
+		if code != 0 || rep.BaseURL != "invalid" || rep.Token != "none" || len(rep.Notes) != 2 || !strings.Contains(rep.Notes[1], "cowl auth login") {
+			t.Errorf("the report must name both problems: exit=%d report=%+v", code, rep)
 		}
 	})
 	t.Run("network down", func(t *testing.T) {
