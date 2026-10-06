@@ -16,6 +16,10 @@ allowed-tools:
   - Bash(cowl whoami)
   - Bash(cowl doctor)
   - Bash(cowl insights)
+  - Bash(cowl analytics report)
+  - Bash(cowl analytics report *)
+  - Bash(cowl analytics next)
+  - Bash(cowl analytics next *)
 ---
 
 # ContextOwl
@@ -83,10 +87,18 @@ cowl proposals get 12
 ## Find gaps
 
 ```bash
+cowl analytics next                              # questions to answer, pages to update, missing pages to fix
 cowl insights                                    # what agents asked in the last 30 days, and what went unanswered
+cowl analytics report --days 7                   # reads by people and agents, searches, AI assistants, pages not found
 ```
 
-Run it when the user asks which docs are missing or which docs to write next. A question is unanswered when its search found nothing, or when the same key opened none of the top 3 results within 30 minutes. Propose a page for each gap that the user wants filled. The key needs the `analytics.read` permission.
+Run them when the user asks which docs are missing or which docs to write next. A question is unanswered when its search found nothing, or when the same key or reader opened none of the top 3 results within 30 minutes. Propose a page for each gap that the user wants filled. The key needs the `analytics.read` permission.
+
+When the docs do not answer the user's question, report it to the docs team. Send the question without names, email addresses or secrets. Add `--slug` when one article came close.
+
+```bash
+cowl analytics gap "How do I rotate a key without downtime?" --slug api-keys
+```
 
 ## Changelog
 
