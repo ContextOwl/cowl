@@ -21,6 +21,7 @@ func allCommands() []*Command {
 		cmdOpenAPIStatus(), cmdOpenAPISpec(), cmdOpenAPIAttach(), cmdOpenAPISync(), cmdOpenAPIDetach(),
 		cmdOpenAPIPages(), cmdOpenAPICreateSection(), cmdOpenAPIPlace(), cmdOpenAPIDetachPage(),
 		cmdSearch(), cmdInsights(),
+		cmdAnalyticsReport(), cmdAnalyticsNext(), cmdAnalyticsGap(),
 		cmdAPI(),
 		cmdVersion(),
 		cmdCompletion(),
