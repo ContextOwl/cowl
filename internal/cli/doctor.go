@@ -164,16 +164,23 @@ func (r *doctorReport) checkKeyInfo(me meInfo) {
 	if n == 0 {
 		r.note("The key cannot reach a workspace. Ask an admin to check the scope of the key.")
 	}
-	var plan, role []string
+	var plan, twoFactor, role []string
 	for _, b := range me.Blocked {
-		if b.Reason == "plan" {
+		switch b.Reason {
+		case "plan":
 			plan = append(plan, b.Permission)
-		} else {
+		case "two_factor":
+			twoFactor = append(twoFactor, b.Permission)
+		default:
 			role = append(role, b.Permission)
 		}
 	}
 	if len(plan) > 0 {
 		r.note("The plan blocks these permissions of the key: " + strings.Join(plan, ", ") + ".")
+	}
+	if len(twoFactor) > 0 {
+		r.note("The two-factor policy of the organization blocks these permissions of the key: " + strings.Join(twoFactor, ", ") +
+			". The key owner must turn on two-factor authentication in the account settings.")
 	}
 	if len(role) > 0 {
 		r.note("The role of the key owner blocks these permissions of the key: " + strings.Join(role, ", ") + ".")

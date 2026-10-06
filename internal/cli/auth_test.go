@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -462,6 +463,22 @@ func TestDoctor(t *testing.T) {
 		term, _, code := run(t, f, []string{"doctor"}, runOpts{term: true})
 		if code != 0 || !strings.Contains(term, "api          ok, HTTP 200") || !strings.Contains(term, "\nnotes\n- ") {
 			t.Errorf("terminal report:\n%s", term)
+		}
+	})
+	t.Run("blocked permissions", func(t *testing.T) {
+		for _, tc := range []struct{ reason, note string }{
+			{"plan", "The plan blocks these permissions of the key: workspace.create."},
+			{"role", "The role of the key owner blocks these permissions of the key: workspace.create."},
+			{"two_factor", "The two-factor policy of the organization blocks these permissions of the key: workspace.create. " +
+				"The key owner must turn on two-factor authentication in the account settings."},
+		} {
+			t.Run(tc.reason, func(t *testing.T) {
+				me := strings.Replace(meJSON, `"reason":"plan"`, `"reason":"`+tc.reason+`"`, 1)
+				out, errOut, code := run(t, &fakeAPI{body: me}, []string{"doctor"}, runOpts{})
+				if rep := doctorJSON(t, out); code != 0 || !slices.Contains(rep.Notes, tc.note) {
+					t.Errorf("exit=%d notes=%q, want %q: %s", code, rep.Notes, tc.note, errOut)
+				}
+			})
 		}
 	})
 	t.Run("no key", func(t *testing.T) {

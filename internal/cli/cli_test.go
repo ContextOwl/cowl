@@ -348,17 +348,17 @@ func TestCommands(t *testing.T) {
 		{
 			name: "proposals create with edits", args: []string{"proposals", "create", "--slug", "api-keys", "--edits", "-", "--base-revision", "8f3a2c1b9d0e", "--note", "typo fix"},
 			stdin:  editsJSON,
-			status: 201, response: `{"id":9,"status":"pending","slug":"api-keys","reviewUrl":"https://contextowl.co/admin/proposals?id=9","baseRevision":"8f3a2c1b9d0e"}`,
+			status: 201, response: `{"id":9,"status":"pending","slug":"api-keys","reviewUrl":"https://contextowl.co/admin/proposals?ws=platform\u0026id=9","baseRevision":"8f3a2c1b9d0e"}`,
 			wantMethod: "POST", wantPath: "/api/v1/workspaces/-/proposals",
 			wantBody: map[string]any{"edits": []any{map[string]any{"old": "30 days", "new": "90 days"}}, "base_revision": "8f3a2c1b9d0e", "slug": "api-keys", "note": "typo fix"},
-			wantTerm: []string{"created proposal 9 (pending) for api-keys https://contextowl.co/admin/proposals?id=9"},
+			wantTerm: []string{"created proposal 9 (pending) for api-keys https://contextowl.co/admin/proposals?ws=platform&id=9"},
 		},
 		{
 			name: "proposals create new article", args: []string{"proposals", "create", "--title", "Rotate keys", "--markdown", "# Rotate", "--section-key", "reference", "--note", "new page", "--allow-shrink"},
-			status: 201, response: `{"id":10,"status":"pending","slug":"","reviewUrl":"https://contextowl.co/admin/proposals?id=10","baseRevision":""}`,
+			status: 201, response: `{"id":10,"status":"pending","slug":"","reviewUrl":"https://contextowl.co/admin/proposals?ws=platform\u0026id=10","baseRevision":""}`,
 			wantMethod: "POST", wantPath: "/api/v1/workspaces/-/proposals",
 			wantBody: map[string]any{"markdown": "# Rotate", "allow_shrink": true, "title": "Rotate keys", "note": "new page", "section_key": "reference"},
-			wantTerm: []string{"created proposal 10 (pending) https://contextowl.co/admin/proposals?id=10"},
+			wantTerm: []string{"created proposal 10 (pending) https://contextowl.co/admin/proposals?ws=platform&id=10"},
 		},
 		{
 			name: "changelog list paged", args: []string{"changelog", "list", "--limit", "20", "--offset", "40", "--since", "30d"},
