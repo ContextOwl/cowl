@@ -7,10 +7,33 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
+
+// meDrafts is meJSON from a server that sends readsDrafts. A key without a
+// draft permission reads published articles only, so the false body has no
+// article.propose.
+func meDrafts(readsDrafts bool) string {
+	body := meJSON
+	if !readsDrafts {
+		body = strings.Replace(body, `"article.propose",`, "", 1)
+	}
+	return strings.TrimSuffix(body, "}") + `,"readsDrafts":` + strconv.FormatBool(readsDrafts) + "}"
+}
+
+// fieldLine returns the line of out that starts with label, with its
+// whitespace collapsed, or "" when out has no such line.
+func fieldLine(out, label string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, label) {
+			return strings.Join(strings.Fields(line), " ")
+		}
+	}
+	return ""
+}
 
 func writeConfig(t *testing.T, cfg Config) string {
 	t.Helper()
@@ -240,6 +263,69 @@ func TestAuthStatus(t *testing.T) {
 	out, _, code = run(t, f, []string{"auth", "status"}, runOpts{})
 	if code != 0 || out != meJSON+"\n" {
 		t.Errorf("a pipe gets the getMe body: exit=%d out=%q", code, out)
+	}
+}
+
+func TestKeyDraftReads(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"reads drafts", meDrafts(true), "drafts: yes"},
+		{"published pages only", meDrafts(false), "drafts: no, published pages only"},
+		{"server without readsDrafts", meJSON, ""},
+	}
+	for _, tt := range tests {
+		for _, args := range [][]string{{"whoami"}, {"auth", "status"}} {
+			t.Run(tt.name+"/"+strings.Join(args, " "), func(t *testing.T) {
+				f := &fakeAPI{body: tt.body}
+				out, errOut, code := run(t, f, args, runOpts{term: true})
+				if code != 0 {
+					t.Fatalf("exit %d: %s", code, errOut)
+				}
+				if got := fieldLine(out, "drafts:"); got != tt.want {
+					t.Errorf("drafts line = %q, want %q\n%s", got, tt.want, out)
+				}
+				out, _, code = run(t, f, args, runOpts{})
+				if code != 0 || out != tt.body+"\n" {
+					t.Errorf("a pipe gets the getMe body as it is: exit=%d out=%q", code, out)
+				}
+			})
+		}
+	}
+}
+
+func TestWhoamiGolden(t *testing.T) {
+	const fields = "key:          cowl_pat_test0t…\n" +
+		"name:         \"Support agent\"\n" +
+		"expires:      2026-11-03 09:12\n" +
+		"org:          ContextOwl Developers (developers, plan free)\n" +
+		"role:         viewer\n" +
+		"workspace:    platform (bound key)\n" +
+		"permissions:  article.read, search\n" +
+		"blocked:      workspace.create (plan)\n"
+	const workspaces = "\n" +
+		"WORKSPACE  NAME            ACCESS\n" +
+		"platform   Developer Docs  public\n"
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"published pages only", meDrafts(false), fields + "drafts:       no, published pages only\n" + workspaces},
+		{"server without readsDrafts", strings.Replace(meJSON, `"article.propose",`, "", 1), fields + workspaces},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, errOut, code := run(t, &fakeAPI{body: tt.body}, []string{"whoami"}, runOpts{term: true})
+			if code != 0 {
+				t.Fatalf("exit %d: %s", code, errOut)
+			}
+			if out != tt.want {
+				t.Errorf("whoami printed:\n%s\nwant:\n%s", out, tt.want)
+			}
+		})
 	}
 }
 
@@ -477,6 +563,36 @@ func TestDoctor(t *testing.T) {
 				out, errOut, code := run(t, &fakeAPI{body: me}, []string{"doctor"}, runOpts{})
 				if rep := doctorJSON(t, out); code != 0 || !slices.Contains(rep.Notes, tc.note) {
 					t.Errorf("exit=%d notes=%q, want %q: %s", code, rep.Notes, tc.note, errOut)
+				}
+			})
+		}
+	})
+	t.Run("draft reads", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			body string
+			json string
+			line string
+		}{
+			{"reads drafts", meDrafts(true), `"readsDrafts":true`, "drafts yes"},
+			{"published pages only", meDrafts(false), `"readsDrafts":false`, "drafts no, published pages only"},
+			{"server without readsDrafts", meJSON, "", ""},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				f := &fakeAPI{body: tc.body}
+				out, errOut, code := run(t, f, []string{"doctor"}, runOpts{})
+				if code != 0 {
+					t.Fatalf("exit %d: %s", code, errOut)
+				}
+				if tc.json == "" && (strings.Contains(out, "readsDrafts") || doctorJSON(t, out).ReadsDrafts != nil) {
+					t.Errorf("the report must leave out readsDrafts when the server does not send it:\n%s", out)
+				}
+				if tc.json != "" && !strings.Contains(out, tc.json) {
+					t.Errorf("report missing %s:\n%s", tc.json, out)
+				}
+				term, _, _ := run(t, f, []string{"doctor"}, runOpts{term: true})
+				if got := fieldLine(term, "drafts"); got != tc.line {
+					t.Errorf("drafts line = %q, want %q\n%s", got, tc.line, term)
 				}
 			})
 		}

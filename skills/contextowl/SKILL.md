@@ -45,7 +45,7 @@ cowl search "rotate an agent key"                # full-text search, 10 hits
 cowl search "keys expire" --semantic --limit 5   # when you do not know the words the docs use
 cowl search "sso setup" --published-only
 cowl articles list --updated-since 7d            # what changed, newest first
-cowl articles list --status "DRAFT,IN REVIEW"
+cowl articles list --status "DRAFT,IN REVIEW"    # empty when the key reads no drafts
 ```
 
 Each hit has `type`, `title`, `status`, `url` and a plain-text `snippet`. An article hit has `slug` and `updatedAt`. A changelog hit has `id` and `publishedAt`. When nothing matches, `suggestions` holds up to 3 close titles. Try those before you search again.
@@ -58,7 +58,7 @@ cowl articles get api-keys --section rotation    # one heading and its text
 cowl articles get api-keys webhooks              # two articles in one call
 ```
 
-The front matter has `status`, `revision`, `url` and `anchors`. To read one heading, pass one of the `anchors` to `--section`. A renamed slug follows the redirect and adds `redirected_from`. An end-to-end encrypted article fails with `encrypted` because its text is not available to agents.
+The front matter has `status`, `revision`, `url` and `anchors`. To read one heading, pass one of the `anchors` to `--section`. A renamed slug follows the redirect and adds `redirected_from`. An end-to-end encrypted article fails with `encrypted` because its text is not available to agents. A key that reads no drafts gets `not_found` for a DRAFT or IN REVIEW article, and for a slug that redirects to one.
 
 ## Propose a change
 
@@ -125,7 +125,7 @@ The error line is `{"error":{"code","message","status","details"}}`. A failure t
 
 ## Workspaces and keys
 
-A key bound to one workspace needs no `-w`. An org-wide key needs `-w ID` or `CONTEXTOWL_WORKSPACE`. Run `cowl whoami` only when an error names a workspace or a permission. It shows the role, the workspaces and the permissions of the key. Never print, log or ask for the key itself.
+A key bound to one workspace needs no `-w`. An org-wide key needs `-w ID` or `CONTEXTOWL_WORKSPACE`. Run `cowl whoami` only when an error names a workspace or a permission, or when an article that the user names is not found. It shows the role, the workspaces and the permissions of the key. `readsDrafts` is false when the key reads published articles only. Then tell the user that a key with `article.propose` also reads drafts. Never print, log or ask for the key itself.
 
 ## MCP
 

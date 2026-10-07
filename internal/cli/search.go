@@ -48,10 +48,11 @@ func cmdSearch() *Command {
 		Name: "search", OpIDs: []string{"searchDocs"},
 		Summary: "Search a workspace's articles and changelog (full-text, or --semantic)",
 		Usage:   "cowl search QUERY [--limit N] [--semantic] [--published-only]",
+		Notes:   draftRuleNote,
 		Flags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&semantic, "semantic", false, "rank by meaning. Without embeddings on the server, cowl gets full-text results")
 			fs.IntVar(&limit, "limit", 10, "max results, 1 to 50")
-			fs.BoolVar(&publishedOnly, "published-only", false, "leave out DRAFT and IN REVIEW articles")
+			fs.BoolVar(&publishedOnly, "published-only", false, publishedOnlyFlagHelp)
 		},
 		Run: func(a *App, args []string) error {
 			query := joinArgs(args)

@@ -45,6 +45,7 @@ type Command struct {
 	OpIDs   []string
 	Summary string
 	Usage   string
+	Notes   string // the command help prints it after the flags
 	Local   bool
 	NoKey   bool
 	Flags   func(fs *flag.FlagSet)
@@ -231,6 +232,9 @@ Run 'cowl help <command>' or 'cowl <command> <subcommand> --help' for details.
 `)
 }
 
+// printGroupHelp lists the commands of a group. For a top-level command, such
+// as search, it prints the full command help. It reports whether the name is
+// a group or a command.
 func printGroupHelp(w io.Writer, group string) bool {
 	var cmds []*Command
 	for _, c := range allCommands() {
@@ -240,6 +244,10 @@ func printGroupHelp(w io.Writer, group string) bool {
 	}
 	if len(cmds) == 0 {
 		return false
+	}
+	if len(cmds) == 1 && cmds[0].Group == "" {
+		printCommandHelp(w, cmds[0], cmds[0].flagSet(&globals{}))
+		return true
 	}
 	for _, c := range cmds {
 		fmt.Fprintf(w, "  %-56s %s\n", c.Usage, c.Summary)
@@ -252,6 +260,9 @@ func printCommandHelp(w io.Writer, c *Command, fs *flag.FlagSet) {
 	fs.SetOutput(w)
 	fs.PrintDefaults()
 	fs.SetOutput(io.Discard)
+	if c.Notes != "" {
+		fmt.Fprintf(w, "\n%s\n", c.Notes)
+	}
 }
 
 // version is the release version from -ldflags, else the module version

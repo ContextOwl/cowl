@@ -28,7 +28,7 @@ Create an agent key in **Admin > Settings > API**. Then save the key:
 ```bash
 cowl auth login                                       # hidden prompt
 cowl auth login --with-token -w platform < key.txt   # key from stdin, default workspace
-cowl whoami                                           # role, workspaces and permissions of the key
+cowl whoami                                           # role, workspaces and permissions of the key, and whether it reads drafts
 ```
 
 For a self-hosted server, add `--base-url https://docs.example.com` to `cowl auth login`. cowl saves the base URL with the key and sends the saved key only to that base URL.
