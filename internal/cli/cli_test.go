@@ -305,10 +305,10 @@ func TestCommands(t *testing.T) {
 		},
 		{
 			name: "articles place with position", args: []string{"articles", "place", "intro", "--section", "guides", "--position", "2"},
-			response:   `{"slug":"intro","section":"guides"}`,
+			response:   `{"slug":"intro","section":"guides","visibility":"public","visibilityChanged":false}`,
 			wantMethod: "POST", wantPath: "/api/v1/workspaces/-/articles/intro/placement",
 			wantBody: map[string]any{"section": "guides", "position": float64(2)},
-			wantTerm: []string{"placed article intro in guides at position 2"},
+			wantTerm: []string{"placed article intro in guides at position 2 (visibility public)"},
 		},
 		{
 			name: "sections list", args: []string{"sections", "list"},
@@ -474,10 +474,10 @@ func TestCommands(t *testing.T) {
 		},
 		{
 			name: "openapi place with position", args: []string{"openapi", "place", "get-users", "--section", "api", "--position", "0"},
-			response:   `{"slug":"get-users"}`,
+			response:   `{"slug":"get-users","title":"List users","method":"GET","source":"openapi","nav":"api","visibility":"public"}`,
 			wantMethod: "POST", wantPath: "/api/v1/workspaces/-/openapi/pages/get-users/placement",
 			wantBody: map[string]any{"section": "api", "position": float64(0)},
-			wantTerm: []string{"placed page get-users in api at position 0"},
+			wantTerm: []string{"placed page get-users in api at position 0 (visibility public)"},
 		},
 		{
 			name: "openapi detach-page", args: []string{"openapi", "detach-page", "get-users"},
@@ -702,6 +702,88 @@ func TestUsageErrors(t *testing.T) {
 				t.Errorf("request should not have been sent, got %v", reqs)
 			}
 		})
+	}
+}
+
+// TestPlaceReceipts: the place receipts print the visibility that the server
+// returns. When an article kept the access of the section that it left, a note
+// says how to open it. A server that sends no visibility gets the receipt
+// without it. In a pipe and with --json, cowl prints the body and no note.
+func TestPlaceReceipts(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		response string
+		wantOut  string
+		wantErr  string
+	}{
+		{
+			name:     "article keeps its own visibility",
+			args:     []string{"articles", "place", "intro", "--section", "guides", "--position", "2"},
+			response: `{"slug":"intro","section":"guides","visibility":"public","visibilityChanged":false}`,
+			wantOut:  "placed article intro in guides at position 2 (visibility public)\n",
+		},
+		{
+			name:     "article keeps the access of the section that it left",
+			args:     []string{"articles", "place", "partner-pricing", "--section", "none"},
+			response: `{"slug":"partner-pricing","section":"none","visibility":"private","visibilityChanged":true}`,
+			wantOut:  "placed article partner-pricing in none (visibility private)\n",
+			wantErr: "note: partner-pricing kept the access of the private section that it left, so the move did not open it to more readers. " +
+				"To open it, run 'cowl articles update partner-pricing --visibility public'\n",
+		},
+		{
+			name:     "article on a server without the visibility fields",
+			args:     []string{"articles", "place", "intro", "--section", "guides"},
+			response: `{"slug":"intro","section":"guides"}`,
+			wantOut:  "placed article intro in guides\n",
+		},
+		{
+			name: "openapi page",
+			args: []string{"openapi", "place", "get-users", "--section", "none"},
+			response: `{"slug":"get-users","title":"List users","section":"","kicker":"","status":"STABLE","author":"","method":"GET","source":"openapi",` +
+				`"markdown":"# List users\n","nav":"none","navLabel":"List users","level":0,"isFolder":false,"sort":0,"views":0,"visibility":"private",` +
+				`"locked":false,"encrypted":false,"archived":false,"updatedAt":"2026-10-07T10:00:00Z","updatedLabel":"","createdAt":"2026-10-01T10:00:00Z"}`,
+			wantOut: "placed page get-users in none (visibility private)\n",
+		},
+		{
+			name:     "openapi page without a visibility",
+			args:     []string{"openapi", "place", "get-users", "--section", "api", "--position", "0"},
+			response: `{"slug":"get-users"}`,
+			wantOut:  "placed page get-users in api at position 0\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &fakeAPI{body: tt.response}
+			out, errOut, code := run(t, f, tt.args, runOpts{term: true})
+			if code != 0 || out != tt.wantOut || errOut != tt.wantErr {
+				t.Errorf("terminal: exit %d\nstdout %q\nwant   %q\nstderr %q\nwant   %q", code, out, tt.wantOut, errOut, tt.wantErr)
+			}
+			for _, mode := range []struct {
+				name string
+				args []string
+				opts runOpts
+			}{
+				{"pipe", tt.args, runOpts{}},
+				{"--json", append(append([]string(nil), tt.args...), "--json"), runOpts{term: true}},
+			} {
+				out, errOut, code := run(t, f, mode.args, mode.opts)
+				if want := compactJSON(t, tt.response) + "\n"; code != 0 || out != want || errOut != "" {
+					t.Errorf("%s: exit %d, stdout %q, stderr %q, want the body %q and no note", mode.name, code, out, errOut, want)
+				}
+			}
+		})
+	}
+}
+
+func TestKeptAccessNote(t *testing.T) {
+	for visibility, want := range map[string]string{
+		"internal": "note: intro kept the access of the internal section that it left, so the move did not open it to more readers.",
+		"":         "note: intro kept the access of the section that it left, so the move did not open it to more readers.",
+	} {
+		if got := keptAccessNote("intro", visibility); !strings.HasPrefix(got, want) {
+			t.Errorf("keptAccessNote(%q) = %q, want the prefix %q", visibility, got, want)
+		}
 	}
 }
 
