@@ -43,13 +43,14 @@ func cmdLandingAutofill() *Command {
 }
 
 func cmdLandingSet() *Command {
-	var file string
+	var file, note string
 	return &Command{
 		Group: "landing", Name: "set", OpIDs: []string{"setLanding"},
 		Summary: "Replace the whole workspace landing page with a JSON file (start from 'cowl landing get')",
-		Usage:   "cowl landing set --file landing.json|-",
+		Usage:   "cowl landing set --file landing.json|- [--note NOTE]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&file, "file", "", "landing JSON file, - for stdin (required)")
+			fs.StringVar(&note, "note", "", noteHelp)
 		},
 		Run: func(a *App, args []string) error {
 			if err := noArgs(args); err != nil {
@@ -59,11 +60,11 @@ func cmdLandingSet() *Command {
 			if err != nil {
 				return err
 			}
-			raw, err := a.request("PUT", a.ws()+"/landing", nil, body)
+			raw, httpStatus, err := a.requestStatus("PUT", a.ws()+"/landing", noteQuery(note), body)
 			if err != nil {
 				return err
 			}
-			return a.emit(raw, func() error {
+			return a.emitWrite(raw, httpStatus, func() error {
 				fmt.Fprintln(a.Out, "landing updated")
 				return nil
 			})

@@ -133,6 +133,7 @@ func cmdAuthLogin() *Command {
 				if ws != "" {
 					fmt.Fprintf(a.Out, "default workspace: %s\n", ws)
 				}
+				a.fields(writeFields(me))
 				return nil
 			}); err != nil {
 				return err
@@ -188,7 +189,8 @@ func cmdAuthStatus() *Command {
 				return err
 			}
 			return a.emit(raw, func() error {
-				a.fields(append(append(local, meFields(me)...), [2]string{"status:", "valid"}))
+				fields := append(append(local, meFields(me)...), writeFields(me)...)
+				a.fields(append(fields, [2]string{"status:", "valid"}))
 				return nil
 			})
 		},
@@ -279,7 +281,8 @@ func cmdWhoami() *Command {
 				return err
 			}
 			return a.emit(raw, func() error {
-				a.fields(append([][2]string{{"key:", keyLabel(me, a.token)}}, meFields(me)...))
+				fields := append([][2]string{{"key:", keyLabel(me, a.token)}}, meFields(me)...)
+				a.fields(append(fields, writeFields(me)...))
 				fmt.Fprintln(a.Out)
 				rows := make([][]string, 0, len(me.Workspaces))
 				for _, w := range me.Workspaces {

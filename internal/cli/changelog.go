@@ -152,19 +152,19 @@ func cmdChangelogGet() *Command {
 	}
 }
 
-func changelogReceipt(a *App, verb string, raw []byte) error {
-	return emitAs(a, raw, func(e changelogEntry) error {
+func changelogReceipt(a *App, verb string, raw []byte, httpStatus int) error {
+	return emitWriteAs(a, raw, httpStatus, func(e changelogEntry) error {
 		fmt.Fprintf(a.Out, "%s changelog entry %d (%s)%s\n", verb, e.ID, dash(e.Status), urlSuffix(e.URL))
 		return nil
 	})
 }
 
 func cmdChangelogCreate() *Command {
-	var opts struct{ title, file, markdown, tags, status, publishedAt string }
+	var opts struct{ title, file, markdown, tags, status, publishedAt, note string }
 	return &Command{
 		Group: "changelog", Name: "create", OpIDs: []string{"createChangelog"},
 		Summary: "Create a changelog entry (publishing needs changelog.publish)",
-		Usage:   "cowl changelog create --title TITLE [--file FILE|- | --markdown TEXT] [--tags new,fixed] [--status draft|published] [--published-at RFC3339]",
+		Usage:   "cowl changelog create --title TITLE [--file FILE|- | --markdown TEXT] [--tags new,fixed] [--status draft|published] [--published-at RFC3339] [--note NOTE]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&opts.title, "title", "", "entry title (required)")
 			fs.StringVar(&opts.file, "file", "", "markdown file, - for stdin")
@@ -172,6 +172,7 @@ func cmdChangelogCreate() *Command {
 			fs.StringVar(&opts.tags, "tags", "", changelogTagsHelp)
 			fs.StringVar(&opts.status, "status", "", "draft or published")
 			fs.StringVar(&opts.publishedAt, "published-at", "", "publish time (RFC 3339). A future time schedules the entry")
+			fs.StringVar(&opts.note, "note", "", noteHelp)
 		},
 		Run: func(a *App, args []string) error {
 			if err := noArgs(args); err != nil {
@@ -197,21 +198,21 @@ func cmdChangelogCreate() *Command {
 			if opts.publishedAt != "" {
 				body["published_at"] = opts.publishedAt
 			}
-			raw, err := a.request("POST", a.ws()+"/changelog", nil, body)
+			raw, httpStatus, err := a.requestNote("POST", a.ws()+"/changelog", body, opts.note)
 			if err != nil {
 				return err
 			}
-			return changelogReceipt(a, "created", raw)
+			return changelogReceipt(a, "created", raw, httpStatus)
 		},
 	}
 }
 
 func cmdChangelogUpdate() *Command {
-	var opts struct{ title, file, markdown, tags, status, publishedAt string }
+	var opts struct{ title, file, markdown, tags, status, publishedAt, note string }
 	return &Command{
 		Group: "changelog", Name: "update", OpIDs: []string{"updateChangelog"},
 		Summary: "Update a changelog entry (changing --status needs changelog.publish)",
-		Usage:   "cowl changelog update ID [--title T] [--file FILE|- | --markdown TEXT] [--tags new,fixed] [--status S] [--published-at RFC3339]",
+		Usage:   "cowl changelog update ID [--title T] [--file FILE|- | --markdown TEXT] [--tags new,fixed] [--status S] [--published-at RFC3339] [--note NOTE]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&opts.title, "title", "", "new title")
 			fs.StringVar(&opts.file, "file", "", "markdown file, - for stdin")
@@ -219,6 +220,7 @@ func cmdChangelogUpdate() *Command {
 			fs.StringVar(&opts.tags, "tags", "", changelogTagsHelp+". Replaces the set")
 			fs.StringVar(&opts.status, "status", "", "draft or published")
 			fs.StringVar(&opts.publishedAt, "published-at", "", "publish time (RFC 3339). A future time schedules the entry")
+			fs.StringVar(&opts.note, "note", "", noteHelp)
 		},
 		Run: func(a *App, args []string) error {
 			id, err := idArg(args)
@@ -248,23 +250,25 @@ func cmdChangelogUpdate() *Command {
 			if len(body) == 0 {
 				return usageError("nothing to update: pass at least one of --title, --file, --markdown, --tags, --status, --published-at")
 			}
-			raw, err := a.request("PATCH", a.ws()+"/changelog/"+id, nil, body)
+			raw, httpStatus, err := a.requestNote("PATCH", a.ws()+"/changelog/"+id, body, opts.note)
 			if err != nil {
 				return err
 			}
-			return changelogReceipt(a, "updated", raw)
+			return changelogReceipt(a, "updated", raw, httpStatus)
 		},
 	}
 }
 
 func cmdChangelogDelete() *Command {
 	var yes bool
+	var note string
 	return &Command{
 		Group: "changelog", Name: "delete", OpIDs: []string{"deleteChangelog"},
 		Summary: "Delete a changelog entry",
-		Usage:   "cowl changelog delete ID [--yes]",
+		Usage:   "cowl changelog delete ID [--yes] [--note NOTE]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&yes, "yes", false, "skip the confirmation prompt")
+			fs.StringVar(&note, "note", "", noteHelp)
 		},
 		Run: func(a *App, args []string) error {
 			id, err := idArg(args)
@@ -274,11 +278,11 @@ func cmdChangelogDelete() *Command {
 			if err := a.confirm("delete changelog entry "+id, yes); err != nil {
 				return err
 			}
-			raw, err := a.request("DELETE", a.ws()+"/changelog/"+id, nil, nil)
+			raw, httpStatus, err := a.requestStatus("DELETE", a.ws()+"/changelog/"+id, noteQuery(note), nil)
 			if err != nil {
 				return err
 			}
-			return a.emit(raw, func() error {
+			return a.emitWrite(raw, httpStatus, func() error {
 				fmt.Fprintf(a.Out, "deleted changelog entry %s\n", id)
 				return nil
 			})

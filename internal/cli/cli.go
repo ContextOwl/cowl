@@ -220,6 +220,10 @@ or a receipt prints one line of JSON. articles get, changelog get and
 openapi spec print their content, and JSON only with --json. When stderr is
 not a terminal, an error is one JSON line: {"error":{"code","message","status"}}.
 
+When the organization reviews agent changes, a write to live content waits in
+a proposal for an editor. cowl then prints the proposal and its review link,
+and exits 0. Add --note to tell the reviewer what the change does.
+
 exit codes:
   0  success
   1  other error

@@ -64,14 +64,15 @@ func cmdOpenAPISpec() *Command {
 }
 
 func cmdOpenAPIAttach() *Command {
-	var specURL, file string
+	var specURL, file, note string
 	return &Command{
 		Group: "openapi", Name: "attach", OpIDs: []string{"attachOpenAPI"},
 		Summary: "Attach an OpenAPI spec (by URL or file) and generate reference pages",
-		Usage:   "cowl openapi attach --url URL | --file spec.json|-",
+		Usage:   "cowl openapi attach --url URL | --file spec.json|- [--note NOTE]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&specURL, "url", "", "public URL of the spec")
 			fs.StringVar(&file, "file", "", "spec file (JSON or YAML), - for stdin")
+			fs.StringVar(&note, "note", "", noteHelp)
 		},
 		Run: func(a *App, args []string) error {
 			if err := noArgs(args); err != nil {
@@ -90,41 +91,47 @@ func cmdOpenAPIAttach() *Command {
 				}
 				body["spec"] = string(data)
 			}
-			raw, err := a.request("PUT", a.ws()+"/openapi", nil, body)
+			raw, httpStatus, err := a.requestNote("PUT", a.ws()+"/openapi", body, note)
 			if err != nil {
 				return err
 			}
-			return a.printJSON(raw)
+			return a.emitWrite(raw, httpStatus, func() error { return a.printJSON(raw) })
 		},
 	}
 }
 
 func cmdOpenAPISync() *Command {
+	var note string
 	return &Command{
 		Group: "openapi", Name: "sync", OpIDs: []string{"syncOpenAPI"},
 		Summary: "Fetch the spec URL again and regenerate pages. A failed fetch keeps the stored spec",
-		Usage:   "cowl openapi sync [-w WORKSPACE]",
+		Usage:   "cowl openapi sync [-w WORKSPACE] [--note NOTE]",
+		Flags: func(fs *flag.FlagSet) {
+			fs.StringVar(&note, "note", "", noteHelp)
+		},
 		Run: func(a *App, args []string) error {
 			if err := noArgs(args); err != nil {
 				return err
 			}
-			raw, err := a.request("POST", a.ws()+"/openapi/sync", nil, nil)
+			raw, httpStatus, err := a.requestStatus("POST", a.ws()+"/openapi/sync", noteQuery(note), nil)
 			if err != nil {
 				return err
 			}
-			return a.printJSON(raw)
+			return a.emitWrite(raw, httpStatus, func() error { return a.printJSON(raw) })
 		},
 	}
 }
 
 func cmdOpenAPIDetach() *Command {
 	var yes bool
+	var note string
 	return &Command{
 		Group: "openapi", Name: "detach", OpIDs: []string{"detachOpenAPI"},
 		Summary: "Detach the OpenAPI spec and delete the pages it generated",
-		Usage:   "cowl openapi detach [--yes]",
+		Usage:   "cowl openapi detach [--yes] [--note NOTE]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&yes, "yes", false, "skip the confirmation prompt")
+			fs.StringVar(&note, "note", "", noteHelp)
 		},
 		Run: func(a *App, args []string) error {
 			if err := noArgs(args); err != nil {
@@ -133,11 +140,11 @@ func cmdOpenAPIDetach() *Command {
 			if err := a.confirm("detach the OpenAPI spec from workspace "+a.workspace+" and delete its generated pages", yes); err != nil {
 				return err
 			}
-			raw, err := a.request("DELETE", a.ws()+"/openapi", nil, nil)
+			raw, httpStatus, err := a.requestStatus("DELETE", a.ws()+"/openapi", noteQuery(note), nil)
 			if err != nil {
 				return err
 			}
-			return emitAs(a, raw, func(res struct {
+			return emitWriteAs(a, raw, httpStatus, func(res struct {
 				Removed int `json:"removed"`
 			}) error {
 				fmt.Fprintf(a.Out, "detached the OpenAPI spec and deleted %d generated pages\n", res.Removed)
@@ -214,15 +221,16 @@ func cmdOpenAPICreateSection() *Command {
 }
 
 func cmdOpenAPIPlace() *Command {
-	var section string
+	var section, note string
 	var position int
 	return &Command{
 		Group: "openapi", Name: "place", OpIDs: []string{"placeOpenAPIPage"},
 		Summary: "Move a generated OpenAPI page within a section",
-		Usage:   "cowl openapi place SLUG --section SECTION_KEY [--position N]",
+		Usage:   "cowl openapi place SLUG --section SECTION_KEY [--position N] [--note NOTE]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&section, "section", "", "target section key (required)")
 			fs.IntVar(&position, "position", 0, "0-based position in the section (default: the end)")
+			fs.StringVar(&note, "note", "", noteHelp)
 		},
 		Run: func(a *App, args []string) error {
 			slug, err := oneArg(args, "SLUG")
@@ -239,11 +247,11 @@ func cmdOpenAPIPlace() *Command {
 				}
 				body["position"] = position
 			}
-			raw, err := a.request("POST", a.ws()+"/openapi/pages/"+url.PathEscape(slug)+"/placement", nil, body)
+			raw, httpStatus, err := a.requestNote("POST", a.ws()+"/openapi/pages/"+url.PathEscape(slug)+"/placement", body, note)
 			if err != nil {
 				return err
 			}
-			return emitAs(a, raw, func(page struct {
+			return emitWriteAs(a, raw, httpStatus, func(page struct {
 				Visibility string `json:"visibility"`
 			}) error {
 				a.printPlaced("page", slug, section, position, page.Visibility)

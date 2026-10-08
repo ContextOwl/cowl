@@ -235,6 +235,9 @@ type articleWrite struct {
 	PreviousRevision string   `json:"previousRevision"`
 	Changed          []string `json:"changed"`
 	Placed           bool     `json:"placed"`
+	// WithdrawnProposal is set when an update withdrew the pending proposal
+	// of the key. An older server never sends it.
+	WithdrawnProposal *withdrawnProposal `json:"withdrawnProposal"`
 }
 
 func (w articleWrite) details() string {
@@ -257,13 +260,13 @@ func urlSuffix(u string) string {
 
 func cmdArticlesUpdate() *Command {
 	var opts struct {
-		title, section, status, visibility, file, markdown, edits, baseRevision string
-		allowShrink                                                             bool
+		title, section, status, visibility, file, markdown, edits, baseRevision, note string
+		allowShrink                                                                   bool
 	}
 	return &Command{
 		Group: "articles", Name: "update", OpIDs: []string{"updateArticle"},
-		Summary: "Update an article directly (changing --status needs article.publish)",
-		Usage:   "cowl articles update SLUG [--title T] [--section LABEL] [--status STATUS] [--visibility TIER] [--file FILE|- | --markdown TEXT | --edits FILE|-] [--base-revision REV] [--allow-shrink]",
+		Summary: "Update an article (changing --status needs article.publish)",
+		Usage:   "cowl articles update SLUG [--title T] [--section LABEL] [--status STATUS] [--visibility TIER] [--file FILE|- | --markdown TEXT | --edits FILE|-] [--base-revision REV] [--allow-shrink] [--note NOTE]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&opts.title, "title", "", "new title")
 			fs.StringVar(&opts.section, "section", "", "new section label shown on the article")
@@ -274,6 +277,7 @@ func cmdArticlesUpdate() *Command {
 			fs.StringVar(&opts.edits, "edits", "", `JSON file with 1 to 20 exact text edits [{"old":"...","new":"..."}], - for stdin`)
 			fs.StringVar(&opts.baseRevision, "base-revision", "", "revision you read. The update fails with stale_revision when the article changed since then")
 			fs.BoolVar(&opts.allowShrink, "allow-shrink", false, "allow a new body that removes more than half of the text")
+			fs.StringVar(&opts.note, "note", "", noteHelp)
 		},
 		Run: func(a *App, args []string) error {
 			slug, err := oneArg(args, "SLUG")
@@ -309,39 +313,47 @@ func cmdArticlesUpdate() *Command {
 			if err := a.revisionFlags(body, opts.baseRevision, opts.allowShrink); err != nil {
 				return err
 			}
-			raw, err := a.request("PATCH", a.ws()+"/articles/"+url.PathEscape(slug), nil, body)
+			raw, httpStatus, err := a.requestNote("PATCH", a.ws()+"/articles/"+url.PathEscape(slug), body, opts.note)
 			if err != nil {
 				return err
 			}
-			return emitAs(a, raw, func(res articleWrite) error {
-				if len(res.Changed) == 0 && !res.Placed {
-					fmt.Fprintf(a.Out, "article %s is unchanged (revision %s)\n", slug, dash(res.Revision))
-					return nil
+			return emitWriteAs(a, raw, httpStatus, func(res articleWrite) error {
+				fmt.Fprintln(a.Out, res.updateReceipt(slug))
+				if w := res.WithdrawnProposal; w != nil {
+					fmt.Fprint(a.Err, w.note())
 				}
-				parts := []string{}
-				if len(res.Changed) > 0 {
-					parts = append(parts, "changed "+strings.Join(res.Changed, ", "))
-				}
-				if res.Placed {
-					parts = append(parts, "placed in section "+dash(res.Nav))
-				}
-				fmt.Fprintf(a.Out, "updated article %s (%s) revision %s%s\n", slug, strings.Join(parts, ", "), dash(res.Revision), urlSuffix(res.URL))
 				return nil
 			})
 		},
 	}
 }
 
+// updateReceipt is the receipt of an update of the article slug.
+func (w articleWrite) updateReceipt(slug string) string {
+	if len(w.Changed) == 0 && !w.Placed {
+		return fmt.Sprintf("article %s is unchanged (revision %s)", slug, dash(w.Revision))
+	}
+	parts := []string{}
+	if len(w.Changed) > 0 {
+		parts = append(parts, "changed "+strings.Join(w.Changed, ", "))
+	}
+	if w.Placed {
+		parts = append(parts, "placed in section "+dash(w.Nav))
+	}
+	return fmt.Sprintf("updated article %s (%s) revision %s%s", slug, strings.Join(parts, ", "), dash(w.Revision), urlSuffix(w.URL))
+}
+
 func cmdArticlesPlace() *Command {
-	var section string
+	var section, note string
 	var position int
 	return &Command{
 		Group: "articles", Name: "place", OpIDs: []string{"placeArticle"},
 		Summary: "Move an article into a sidebar section",
-		Usage:   "cowl articles place SLUG --section SECTION_KEY [--position N]",
+		Usage:   "cowl articles place SLUG --section SECTION_KEY [--position N] [--note NOTE]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&section, "section", "", "target section key, or none to unplace (required)")
 			fs.IntVar(&position, "position", 0, "0-based position in the section (default: the end)")
+			fs.StringVar(&note, "note", "", noteHelp)
 		},
 		Run: func(a *App, args []string) error {
 			slug, err := oneArg(args, "SLUG")
@@ -358,11 +370,11 @@ func cmdArticlesPlace() *Command {
 				}
 				body["position"] = position
 			}
-			raw, err := a.request("POST", a.ws()+"/articles/"+url.PathEscape(slug)+"/placement", nil, body)
+			raw, httpStatus, err := a.requestNote("POST", a.ws()+"/articles/"+url.PathEscape(slug)+"/placement", body, note)
 			if err != nil {
 				return err
 			}
-			return emitAs(a, raw, func(res placement) error {
+			return emitWriteAs(a, raw, httpStatus, func(res placement) error {
 				a.printPlaced("article", slug, section, position, res.Visibility)
 				if res.VisibilityChanged {
 					fmt.Fprint(a.Err, a.keptAccessNote(slug, res.Visibility))
