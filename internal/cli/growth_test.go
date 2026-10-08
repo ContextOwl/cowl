@@ -31,6 +31,17 @@ const (
 		`"searches":{"status":"ready","items":[{"label":"rotate a key without downtime","count":7,"previous":0,"events":22,"unanswered":4,"new":true,"change":0,"score":2.6}]}}}}`
 
 	ruleLine = "a rising row needs 5 or more readers or agents, each counted once a day, at least 25% more than before, and a score of 2 or more.\n"
+
+	// searchWindowReportJSON is a report of 90 days. Its search lists compare
+	// the last 30 days with the 30 days before.
+	searchWindowReportJSON = `{"from":"2026-07-09","to":"2026-10-06","days":90,"textDays":90,` +
+		`"totals":{"reads":900,"readers":300,"agentReads":120,"agentSearches":40,"crawlerHits":0,"aiCrawlerHits":0,"searches":60,"searchNoResults":10,"notFound":0},` +
+		`"previous":{"reads":600,"readers":200,"agentReads":150,"agentSearches":40,"crawlerHits":0,"aiCrawlerHits":0,"searches":80,"searchNoResults":5,"notFound":0},` +
+		`"topArticles":[],"topSearchTerms":[],"aiReferrals":{"reads":0,"assistants":[]},"notFound":[],` +
+		`"growth":{"days":90,"searchDays":30,` + growthRuleJSON + `,` +
+		`"people":{"pages":{"status":"ready","items":[{"workspace":"platform","slug":"sso","label":"Single sign-on","count":40,"previous":12,"events":95,"unanswered":0,"new":false,"change":233,"score":3.9}]},` +
+		`"searches":{"status":"ready","items":[{"label":"okta scim","count":8,"previous":1,"events":11,"unanswered":3,"new":false,"change":700,"score":2.3}]}},` +
+		`"agents":{"pages":{"status":"ready","items":[]},"searches":{"status":"no_baseline","items":[]}}}}`
 )
 
 // runTerm runs a command on a terminal and requires exit 0.
@@ -92,6 +103,28 @@ func TestAnalyticsReportGrowth(t *testing.T) {
 	}
 }
 
+// The comparison line and the page lists cover the range of the report. The
+// search lists cover growth.searchDays, which can be shorter.
+func TestAnalyticsReportSearchWindow(t *testing.T) {
+	out, errOut := runTerm(t, searchWindowReportJSON, "analytics", "report", "--days", "90")
+	want := "2026-07-09 to 2026-10-06: 900 reads by people (300 readers), 120 reads by AI agents, 0 crawler visits (0 pages read by AI crawlers).\n" +
+		"60 searches by people, 10 found nothing. 40 searches by agents. 0 pages not found.\n" +
+		"compared with the 90 days before: reads by people +50%, reads by AI agents -20%, searches by people -25%, searches by agents 0%.\n" +
+		"\nrising pages, people:\n" +
+		"SLUG  TITLE           READERS  BEFORE  CHANGE  READS\n" +
+		"sso   Single sign-on  40       12      +233%   95\n" +
+		"\nrising searches, people (last 30 days):\n" +
+		"QUERY      READERS  BEFORE  CHANGE  SEARCHES  UNANSWERED\n" +
+		"okta scim  8        1       +700%   11        3\n" +
+		"\n" + ruleLine
+	if out != want {
+		t.Errorf("stdout:\n%s\nwant:\n%s", out, want)
+	}
+	if want := "note: rising questions, AI agents: not listed, because the 30 days before had fewer than 10 searches by AI agents\n"; errOut != want {
+		t.Errorf("stderr:\n%s\nwant:\n%s", errOut, want)
+	}
+}
+
 // A server without the growth change sends no growth and no aiCrawlerHits.
 // The oldest servers also send no previous. Lines 1 and 2 stay as they are.
 func TestAnalyticsReportWithoutGrowth(t *testing.T) {
@@ -131,21 +164,29 @@ func TestAnalyticsReportWithoutGrowth(t *testing.T) {
 
 func TestAnalyticsReportNotesGrowthStatus(t *testing.T) {
 	tests := []struct {
-		name   string
-		body   string
-		notes  []string
-		stdout string
+		name  string
+		body  string
+		notes []string
 	}{
 		{
 			name: "a range longer than the search window",
-			body: growthBody(90, 30, "no_history", "no_baseline", "text_off", "text_off"),
+			body: growthBody(90, 30, "no_history", "no_history", "no_baseline", "no_history"),
 			notes: []string{
 				"note: rising pages, people: not listed, because ContextOwl recorded reads for only part of the 90 days before",
-				"note: rising pages, AI agents: not listed, because the 90 days before had fewer than 10 reads by AI agents",
+				"note: rising pages, AI agents: not listed, because ContextOwl recorded reads for only part of the 90 days before",
+				"note: rising searches, people: not listed, because the 30 days before had fewer than 10 searches by people",
+				"note: rising questions, AI agents: not listed, because ContextOwl kept search text for only part of the 30 days before",
+			},
+		},
+		{
+			name: "too few reads before and search text that is not saved",
+			body: growthBody(7, 7, "no_baseline", "no_baseline", "text_off", "text_off"),
+			notes: []string{
+				"note: rising pages, people: not listed, because the 7 days before had fewer than 10 reads by people",
+				"note: rising pages, AI agents: not listed, because the 7 days before had fewer than 10 reads by AI agents",
 				"note: rising searches, people: not listed, because this organization does not save search text",
 				"note: rising questions, AI agents: not listed, because this organization does not save search text",
 			},
-			stdout: "compared with",
 		},
 		{
 			name: "search lists and a status that cowl does not know",
