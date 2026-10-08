@@ -51,7 +51,7 @@ cowl articles list --updated-since 7d            # what changed, newest first
 cowl articles list --status "DRAFT,IN REVIEW"    # empty when the key reads no drafts
 ```
 
-Each hit has `type`, `title`, `status`, `url` and a plain-text `snippet`. An article hit has `slug` and `updatedAt`. A changelog hit has `id` and `publishedAt`. When nothing matches, `suggestions` holds up to 3 close titles. Try those before you search again.
+Each hit has `type`, `title`, `status`, `url` and a plain-text `snippet`. An article hit has `slug` and `updatedAt`. It has `learned: true` when people and agents opened that article after similar searches, so it ranks higher. A changelog hit has `id` and `publishedAt`. When nothing matches, `suggestions` holds up to 3 close titles. Try those before you search again.
 
 ## Read
 
