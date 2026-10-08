@@ -99,19 +99,20 @@ func cmdWorkspacesCreate() *Command {
 
 func cmdWorkspacesUpdate() *Command {
 	var opts struct {
-		name, color, accessMode string
-		listed, llmsTxt         bool
+		name, color, accessMode, note string
+		listed, llmsTxt               bool
 	}
 	return &Command{
 		Group: "workspaces", Name: "update", OpIDs: []string{"updateWorkspace"},
 		Summary: "Update a workspace",
-		Usage:   "cowl workspaces update [WORKSPACE] [--name N] [--color #rrggbb] [--access-mode M] [--listed=BOOL] [--llms-txt=BOOL]",
+		Usage:   "cowl workspaces update [WORKSPACE] [--name N] [--color #rrggbb] [--access-mode M] [--listed=BOOL] [--llms-txt=BOOL] [--note NOTE]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&opts.name, "name", "", "new name")
 			fs.StringVar(&opts.color, "color", "", "accent color (#rrggbb)")
 			fs.StringVar(&opts.accessMode, "access-mode", "", "public, internal, or private")
 			fs.BoolVar(&opts.listed, "listed", false, "show this public workspace in the workspace switcher")
 			fs.BoolVar(&opts.llmsTxt, "llms-txt", false, "serve llms.txt for this workspace")
+			fs.StringVar(&opts.note, "note", "", noteHelp)
 		},
 		Run: func(a *App, args []string) error {
 			target, err := workspaceTarget(a, args)
@@ -137,11 +138,12 @@ func cmdWorkspacesUpdate() *Command {
 			if len(body) == 0 {
 				return usageError("nothing to update: pass at least one of --name, --color, --access-mode, --listed, --llms-txt")
 			}
-			raw, err := a.request("PATCH", "/api/v1/workspaces/"+url.PathEscape(target), nil, body)
+			noteBody(body, opts.note)
+			raw, httpStatus, err := a.requestStatus("PATCH", "/api/v1/workspaces/"+url.PathEscape(target), nil, body)
 			if err != nil {
 				return err
 			}
-			return emitAs(a, raw, func(ws workspaceRow) error {
+			return emitWriteAs(a, raw, httpStatus, func(ws workspaceRow) error {
 				fmt.Fprintf(a.Out, "updated workspace %s\n", ws.ID)
 				return nil
 			})

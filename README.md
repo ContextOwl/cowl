@@ -72,6 +72,22 @@ When stderr is not a terminal, an error is one JSON line in the error envelope o
 
 When something does not work, run `cowl doctor`. It checks the setup and the connection, and it never prints the key, names, hosts or paths, so you can share its output in an issue.
 
+## Writes that wait for review
+
+When your organization reviews agent changes, a write to live content waits in a proposal for an editor. cowl then prints the proposal and its review link, and exits 0:
+
+```console
+$ cowl articles update api-keys --edits edits.json --note "Release 2.4 changed the key lifetime to 90 days."
+proposal 42 waits for review: https://contextowl.co/admin/proposals?ws=platform&id=42
+  Change api-keys: text
+```
+
+In agent mode, cowl prints the REST body, which has `pendingReview` set to true. Give the review link to the person who approves changes, and do not run the command again. A later write of the same key updates the same proposal.
+
+These commands can wait for review and take `--note`: `articles update`, `articles place`, `landing set`, `changelog create`, `changelog update`, `changelog delete`, `openapi attach`, `openapi sync`, `openapi detach`, `openapi place` and `workspaces update`. cowl sends `--note` only when you set it. Unless the key is a publishing key, `cowl workspaces delete` fails with `review_required` and exits 4. `cowl workspaces create` with access mode public or `--listed` fails the same way.
+
+`cowl whoami` shows how the changes of the key to live content apply: `none`, `review` or `direct`. An admin can approve a key as a publishing key in **Admin > Settings > API**. Its changes then apply at once.
+
 ## Documentation
 
 Run `cowl help` for the command list. The [CLI guide](https://developer.contextowl.co/docs/platform/cli) explains installation, authentication, commands and scripting.

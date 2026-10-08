@@ -178,6 +178,8 @@ func apiErrorHints(e *APIError) []string {
 	if json.Unmarshal(details["index"], &index) == nil {
 		edit = fmt.Sprintf("edits[%d]", index)
 	}
+	var proposalID int64
+	_ = json.Unmarshal(details["proposalId"], &proposalID)
 	switch {
 	case e.StatusCode == http.StatusUnauthorized:
 		hints = append(hints, "Run 'cowl auth login', or set CONTEXTOWL_PAT.")
@@ -187,10 +189,17 @@ func apiErrorHints(e *APIError) []string {
 		hints = append(hints, "To remove this much text, pass --allow-shrink.")
 	case e.Code == "slug_taken":
 		hints = append(hints, "Pass a different --slug, or leave out --slug to get a free slug.")
+	case e.Code == "edit_not_found" && proposalID > 0:
+		hints = append(hints, fmt.Sprintf("The edits apply to proposal %d, which waits for review. "+
+			"Run 'cowl proposals get %d', then copy the old text of %s exactly from its Markdown.", proposalID, proposalID, edit))
 	case e.Code == "edit_not_found":
 		hints = append(hints, "Read the article again and copy the old text of "+edit+" exactly.")
 	case e.Code == "edit_ambiguous":
 		hints = append(hints, "Add text around the old text of "+edit+" so that it occurs only once.")
+	case e.Code == "review_required":
+		hints = append(hints, "Ask an admin to make this change. An admin can also approve this key as a publishing key in Admin > Settings > API.")
+	case e.Code == "invalid_body" && strings.Contains(e.Message, `unknown field "note"`):
+		hints = append(hints, "This server does not take --note. Run the command again without --note.")
 	}
 	return hints
 }

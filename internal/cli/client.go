@@ -34,9 +34,16 @@ func (e *APIError) Error() string {
 // body may be nil, json.RawMessage / []byte (sent verbatim), or any value to
 // marshal. A single retry is attempted on 429, honoring Retry-After.
 func (a *App) request(method, path string, query url.Values, body any) (json.RawMessage, error) {
+	raw, _, err := a.requestStatus(method, path, query, body)
+	return raw, err
+}
+
+// requestStatus is request that also returns the HTTP status of a success. A
+// write that the org reviews answers 202 instead of 200 or 201.
+func (a *App) requestStatus(method, path string, query url.Values, body any) (json.RawMessage, int, error) {
 	payload, err := encodeBody(body)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	return a.requestPayload(method, path, query, payload, "application/json")
 }
@@ -56,16 +63,17 @@ func (a *App) requestFile(method, path, filename string, content []byte) (json.R
 	if err := mw.Close(); err != nil {
 		return nil, err
 	}
-	return a.requestPayload(method, path, nil, body.Bytes(), mw.FormDataContentType())
+	raw, _, err := a.requestPayload(method, path, nil, body.Bytes(), mw.FormDataContentType())
+	return raw, err
 }
 
-func (a *App) requestPayload(method, path string, query url.Values, payload []byte, contentType string) (json.RawMessage, error) {
-	raw, retryAfter, err := a.doWithContentType(method, path, query, payload, contentType)
+func (a *App) requestPayload(method, path string, query url.Values, payload []byte, contentType string) (json.RawMessage, int, error) {
+	raw, status, retryAfter, err := a.doWithContentType(method, path, query, payload, contentType)
 	if retryAfter > 0 {
 		sleepFn(retryAfter)
-		raw, _, err = a.doWithContentType(method, path, query, payload, contentType)
+		raw, status, _, err = a.doWithContentType(method, path, query, payload, contentType)
 	}
-	return raw, err
+	return raw, status, err
 }
 
 // sleepFn is stubbed in tests so the 429 retry does not slow the suite.
@@ -87,10 +95,13 @@ func encodeBody(body any) ([]byte, error) {
 // do returns (body, 0, nil) on success, (nil, delay, err) when the caller
 // should retry after delay, or (nil, 0, err) on a terminal error.
 func (a *App) do(method, path string, query url.Values, payload []byte) (json.RawMessage, time.Duration, error) {
-	return a.doWithContentType(method, path, query, payload, "application/json")
+	raw, _, retryAfter, err := a.doWithContentType(method, path, query, payload, "application/json")
+	return raw, retryAfter, err
 }
 
-func (a *App) doWithContentType(method, path string, query url.Values, payload []byte, contentType string) (json.RawMessage, time.Duration, error) {
+// doWithContentType is do that also returns the HTTP status of a success.
+// The status is 0 on an error.
+func (a *App) doWithContentType(method, path string, query url.Values, payload []byte, contentType string) (json.RawMessage, int, time.Duration, error) {
 	u := a.baseURL + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
@@ -101,7 +112,7 @@ func (a *App) doWithContentType(method, path string, query url.Values, payload [
 	}
 	req, err := http.NewRequestWithContext(context.Background(), method, u, rd)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	if payload != nil {
 		req.Header.Set("Content-Type", contentType)
@@ -112,20 +123,20 @@ func (a *App) doWithContentType(method, path string, query url.Values, payload [
 	req.Header.Set("User-Agent", fmt.Sprintf("cowl/%s (%s/%s)", version(), runtime.GOOS, runtime.GOARCH))
 	resp, err := a.http.Do(req)
 	if err != nil {
-		return nil, 0, networkError(a.baseURL, err)
+		return nil, 0, 0, networkError(a.baseURL, err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if err != nil {
-		return nil, 0, networkError(a.baseURL, err)
+		return nil, 0, 0, networkError(a.baseURL, err)
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return raw, 0, nil
+		return raw, resp.StatusCode, 0, nil
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return nil, retryDelay(resp.Header.Get("Retry-After")), apiErrorFrom(raw, resp.StatusCode)
+		return nil, 0, retryDelay(resp.Header.Get("Retry-After")), apiErrorFrom(raw, resp.StatusCode)
 	}
-	return nil, 0, apiErrorFrom(raw, resp.StatusCode)
+	return nil, 0, 0, apiErrorFrom(raw, resp.StatusCode)
 }
 
 func networkError(base string, err error) error {

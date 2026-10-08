@@ -30,6 +30,7 @@ type doctorReport struct {
 	Role        string        `json:"role,omitempty"`
 	Plan        string        `json:"plan,omitempty"`
 	KeyScope    string        `json:"keyScope,omitempty"`
+	Writes      string        `json:"writes,omitempty"`
 	Workspaces  *int          `json:"workspaces,omitempty"`
 	Permissions []string      `json:"permissions,omitempty"`
 	Blocked     []blockedPerm `json:"blocked,omitempty"`
@@ -153,7 +154,7 @@ func (r *doctorReport) checkFailure(err error) {
 }
 
 func (r *doctorReport) checkKeyInfo(me meInfo) {
-	r.Role, r.Plan = me.Role, me.Org.Plan
+	r.Role, r.Plan, r.Writes = me.Role, me.Org.Plan, me.Writes
 	r.KeyScope = "org"
 	if me.BoundWorkspace != nil {
 		r.KeyScope = "workspace"
@@ -187,6 +188,9 @@ func (r *doctorReport) checkKeyInfo(me meInfo) {
 	}
 	if exp := me.Key.ExpiresAt; exp != nil && time.Until(*exp) < 7*24*time.Hour {
 		r.note("The key expires on " + exp.UTC().Format("2006-01-02") + ". Create a new key before then.")
+	}
+	if me.Writes == "review" {
+		r.note(reviewNote)
 	}
 	if len(r.Notes) == 0 {
 		r.note("No problems found.")
@@ -245,6 +249,9 @@ func (r doctorReport) print(a *App) {
 			[2]string{"permissions", dash(strings.Join(r.Permissions, ", "))},
 			[2]string{"blocked", dash(strings.Join(blocked, ", "))},
 		)
+	}
+	if r.Writes != "" {
+		pairs = append(pairs, [2]string{"writes", r.Writes})
 	}
 	fmt.Fprintln(a.Out, "cowl doctor")
 	a.fields(pairs)

@@ -14,8 +14,11 @@ type proposalRow struct {
 	ID              int64      `json:"id"`
 	ObjectType      string     `json:"objectType"`
 	Status          string     `json:"status"`
+	Target          string     `json:"target"`
 	Slug            string     `json:"slug"`
 	Title           string     `json:"title"`
+	Summary         string     `json:"summary"`
+	Withdrawn       bool       `json:"withdrawn"`
 	Note            string     `json:"note"`
 	ReviewNote      string     `json:"reviewNote"`
 	Author          string     `json:"author"`
@@ -31,7 +34,7 @@ func cmdProposalsList() *Command {
 	var status string
 	return &Command{
 		Group: "proposals", Name: "list", OpIDs: []string{"listProposals"},
-		Summary: "List edit proposals (pending by default)",
+		Summary: "List your proposals, also the writes that wait for review (pending by default)",
 		Usage:   "cowl proposals list [--status pending|approved|rejected|all]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&status, "status", "", "pending (default), approved, rejected, or all")
@@ -52,11 +55,11 @@ func cmdProposalsList() *Command {
 				out := make([][]string, 0, len(rows))
 				for _, r := range rows {
 					out = append(out, []string{
-						strconv.FormatInt(r.ID, 10), r.ObjectType, r.Status, dash(r.Slug), dash(r.Title),
+						strconv.FormatInt(r.ID, 10), r.ObjectType, r.statusLabel(), dash(r.Slug), dash(r.summaryOrTitle()),
 						yesNo(r.Stale), dash(r.Author), timeLabel(r.CreatedAt), dash(snippetText(r.Note)),
 					})
 				}
-				a.table([]string{"ID", "TYPE", "STATUS", "SLUG", "TITLE", "STALE", "AUTHOR", "CREATED", "NOTE"}, out)
+				a.table([]string{"ID", "TYPE", "STATUS", "SLUG", "SUMMARY", "STALE", "AUTHOR", "CREATED", "NOTE"}, out)
 				return nil
 			})
 		},
@@ -66,7 +69,7 @@ func cmdProposalsList() *Command {
 func cmdProposalsGet() *Command {
 	return &Command{
 		Group: "proposals", Name: "get", OpIDs: []string{"listProposals"},
-		Summary: "Show one proposal with its proposed Markdown",
+		Summary: "Show one proposal, with its proposed Markdown when it changes the text",
 		Usage:   "cowl proposals get ID",
 		Run: func(a *App, args []string) error {
 			id, err := idArg(args)
@@ -89,12 +92,18 @@ func cmdProposalsGet() *Command {
 				p := rows[0]
 				stale := "no"
 				if p.Stale {
-					stale = "yes, the article changed after the proposal"
+					stale = "yes, " + changedTarget(p.ObjectType) + " changed after the proposal"
+				}
+				status := p.Status
+				if p.Withdrawn {
+					status = "withdrawn, a later write of the key made the proposal unneeded"
 				}
 				a.fields([][2]string{
 					{"id:", strconv.FormatInt(p.ID, 10)},
 					{"type:", p.ObjectType},
-					{"status:", p.Status},
+					{"status:", status},
+					{"target:", dash(p.Target)},
+					{"summary:", dash(p.Summary)},
 					{"slug:", dash(p.Slug)},
 					{"title:", dash(p.Title)},
 					{"author:", dash(p.Author)},
@@ -117,6 +126,36 @@ func cmdProposalsGet() *Command {
 			})
 		},
 	}
+}
+
+// statusLabel is the status for a person. A proposal that a later write of
+// the key withdrew has the status rejected, but no reviewer rejected it.
+func (r proposalRow) statusLabel() string {
+	if r.Withdrawn {
+		return "withdrawn"
+	}
+	return r.Status
+}
+
+// summaryOrTitle is the summary of the proposal. An older server sends no
+// summary, and then the title stands in.
+func (r proposalRow) summaryOrTitle() string {
+	return firstOf(r.Summary, r.Title)
+}
+
+// changedTarget names the target of a proposal kind for the stale line.
+func changedTarget(objectType string) string {
+	switch objectType {
+	case "landing":
+		return "the landing page"
+	case "changelog":
+		return "the changelog entry"
+	case "workspace":
+		return "the workspace settings"
+	case "openapi":
+		return "the API reference"
+	}
+	return "the article"
 }
 
 func cmdProposalsCreate() *Command {
