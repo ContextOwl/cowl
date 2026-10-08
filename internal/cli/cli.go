@@ -212,6 +212,8 @@ func printRootHelp(w io.Writer) {
 global flags: -w, --workspace ID  --json  --config PATH
 environment:  CONTEXTOWL_PAT, CONTEXTOWL_WORKSPACE, CONTEXTOWL_BASE_URL, CONTEXTOWL_CONFIG
               The COWL_* names of these variables also work.
+              COWL_AGENT names the AI agent that runs cowl, for analytics. Inside
+              Claude Code, cowl sends claude-code. COWL_AGENT=none sends no name.
 
 When stdout is not a terminal, or with --json, a command that prints a table
 or a receipt prints one line of JSON. articles get, changelog get and

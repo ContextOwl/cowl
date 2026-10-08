@@ -4,20 +4,70 @@ import (
 	"flag"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 )
 
+// reportTotals sums the report period. The 4 NotFound fields after NotFound
+// split it by who asked. They are nil when the server does not split it.
 type reportTotals struct {
-	Reads           int `json:"reads"`
-	Readers         int `json:"readers"`
-	AgentReads      int `json:"agentReads"`
-	AgentSearches   int `json:"agentSearches"`
-	CrawlerHits     int `json:"crawlerHits"`
-	Searches        int `json:"searches"`
-	SearchNoResults int `json:"searchNoResults"`
-	NotFound        int `json:"notFound"`
+	Reads            int  `json:"reads"`
+	Readers          int  `json:"readers"`
+	AgentReads       int  `json:"agentReads"`
+	AgentSearches    int  `json:"agentSearches"`
+	CrawlerHits      int  `json:"crawlerHits"`
+	Searches         int  `json:"searches"`
+	SearchNoResults  int  `json:"searchNoResults"`
+	NotFound         int  `json:"notFound"`
+	NotFoundPeople   *int `json:"notFoundPeople"`
+	NotFoundAgents   *int `json:"notFoundAgents"`
+	NotFoundCrawlers *int `json:"notFoundCrawlers"`
+	NotFoundOther    *int `json:"notFoundOther"`
+}
+
+// notFoundSplit returns the not-found counts by who asked, or "" when the
+// server does not split them.
+func (t reportTotals) notFoundSplit() string {
+	if t.NotFoundPeople == nil || t.NotFoundAgents == nil || t.NotFoundCrawlers == nil || t.NotFoundOther == nil {
+		return ""
+	}
+	return fmt.Sprintf(" (people %d, AI agents %d, crawlers %d, other %d)",
+		*t.NotFoundPeople, *t.NotFoundAgents, *t.NotFoundCrawlers, *t.NotFoundOther)
+}
+
+// whoMissed counts the requests for one path that answered not found, by who
+// asked. A server that splits the counts sends crawlers and other, and then
+// agents counts AI agents only. Other counts integrations and scripts. An
+// older server sends only people and agents, and agents counts every caller
+// that is not a person.
+type whoMissed struct {
+	People   int  `json:"people"`
+	Agents   int  `json:"agents"`
+	Crawlers *int `json:"crawlers"`
+	Other    *int `json:"other"`
+}
+
+// splitMissed reports whether the server split the not-found counts of rows.
+func splitMissed(rows []whoMissed) bool {
+	return slices.ContainsFunc(rows, func(w whoMissed) bool { return w.Crawlers != nil || w.Other != nil })
+}
+
+// missedHeaders returns the column headers of the not-found counts.
+func missedHeaders(split bool) []string {
+	if split {
+		return []string{"PEOPLE", "AI AGENTS", "CRAWLERS", "OTHER"}
+	}
+	return []string{"PEOPLE", "AGENTS"}
+}
+
+// cells returns the not-found counts in the order of missedHeaders.
+func (w whoMissed) cells(split bool) []string {
+	if split {
+		return []string{strconv.Itoa(w.People), strconv.Itoa(w.Agents), optCount(w.Crawlers), optCount(w.Other)}
+	}
+	return []string{strconv.Itoa(w.People), strconv.Itoa(w.Agents)}
 }
 
 type analyticsReport struct {
@@ -40,9 +90,8 @@ type analyticsReport struct {
 		} `json:"assistants"`
 	} `json:"aiReferrals"`
 	NotFound []struct {
-		Path   string `json:"path"`
-		People int    `json:"people"`
-		Agents int    `json:"agents"`
+		Path string `json:"path"`
+		whoMissed
 	} `json:"notFound"`
 }
 
@@ -77,11 +126,10 @@ type contentInsights struct {
 		UpdatedAt   time.Time `json:"updatedAt"`
 	} `json:"pages"`
 	Missing []struct {
-		Workspace  string      `json:"workspace"`
-		Path       string      `json:"path"`
-		Slug       string      `json:"slug"`
-		People     int         `json:"people"`
-		Agents     int         `json:"agents"`
+		Workspace string `json:"workspace"`
+		Path      string `json:"path"`
+		Slug      string `json:"slug"`
+		whoMissed
 		Suggestion *articleRef `json:"suggestion"`
 	} `json:"missing"`
 }
@@ -122,9 +170,9 @@ func cmdAnalyticsReport() *Command {
 				fmt.Fprintf(a.Out, "%s to %s: %s by people (%s), %s by AI agents, %s.\n",
 					r.From, r.To, count(t.Reads, "read", "reads"), count(t.Readers, "reader", "readers"),
 					count(t.AgentReads, "read", "reads"), count(t.CrawlerHits, "crawler visit", "crawler visits"))
-				fmt.Fprintf(a.Out, "%s by people, %d found nothing. %s by agents. %s not found.\n",
+				fmt.Fprintf(a.Out, "%s by people, %d found nothing. %s by agents. %s not found%s.\n",
 					count(t.Searches, "search", "searches"), t.SearchNoResults, count(t.AgentSearches, "search", "searches"),
-					count(t.NotFound, "page", "pages"))
+					count(t.NotFound, "page", "pages"), t.notFoundSplit())
 				if len(r.AIReferrals.Assistants) > 0 {
 					fmt.Fprintln(a.Out, "\nfrom AI assistants:")
 					rows := make([][]string, 0, len(r.AIReferrals.Assistants))
@@ -151,11 +199,16 @@ func cmdAnalyticsReport() *Command {
 				}
 				if len(r.NotFound) > 0 {
 					fmt.Fprintln(a.Out, "\nnot found:")
+					missed := make([]whoMissed, 0, len(r.NotFound))
+					for _, p := range r.NotFound {
+						missed = append(missed, p.whoMissed)
+					}
+					split := splitMissed(missed)
 					rows := make([][]string, 0, len(r.NotFound))
 					for _, p := range r.NotFound {
-						rows = append(rows, []string{p.Path, strconv.Itoa(p.People), strconv.Itoa(p.Agents)})
+						rows = append(rows, append([]string{p.Path}, p.cells(split)...))
 					}
-					a.table([]string{"PATH", "PEOPLE", "AGENTS"}, rows)
+					a.table(append([]string{"PATH"}, missedHeaders(split)...), rows)
 				}
 				return nil
 			})
@@ -224,15 +277,28 @@ func cmdAnalyticsNext() *Command {
 				}
 				if len(in.Missing) > 0 {
 					fmt.Fprintln(a.Out, "\nfix:")
+					missed := make([]whoMissed, 0, len(in.Missing))
+					for _, m := range in.Missing {
+						missed = append(missed, m.whoMissed)
+					}
+					split := splitMissed(missed)
+					headers := []string{"PATH", "ASKED", "REDIRECT TO"}
+					if split {
+						headers = slices.Concat([]string{"PATH"}, missedHeaders(true), []string{"REDIRECT TO"})
+					}
 					rows := make([][]string, 0, len(in.Missing))
 					for _, m := range in.Missing {
 						target := "-"
 						if m.Suggestion != nil {
 							target = m.Suggestion.Slug
 						}
-						rows = append(rows, []string{m.Path, strconv.Itoa(m.People + m.Agents), target})
+						asked := []string{strconv.Itoa(m.People + m.Agents)}
+						if split {
+							asked = m.cells(true)
+						}
+						rows = append(rows, slices.Concat([]string{m.Path}, asked, []string{target}))
 					}
-					a.table([]string{"PATH", "ASKED", "REDIRECT TO"}, rows)
+					a.table(headers, rows)
 				}
 				if days > in.TextDays && len(in.Topics) > 0 {
 					fmt.Fprintf(a.Err, "note: question text is kept %d days, so older questions are not listed\n", in.TextDays)

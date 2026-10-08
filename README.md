@@ -45,6 +45,8 @@ npx skills add ContextOwl/cowl
 
 The skill tells the agent to search before it answers, to read single sections, to cite URLs and to send doc fixes as proposals that an editor reviews. It pre-approves read commands only.
 
+When cowl runs inside an AI agent, it names the agent in the `ContextOwl-Agent` header of each request. ContextOwl analytics then counts the call as that agent, not as cowl. Inside Claude Code, cowl sends `claude-code`. Set `COWL_AGENT` to send another name, or set `COWL_AGENT=none` to send no name. `cowl doctor` prints the name that cowl sends.
+
 ## Agent mode
 
 When stdout is not a terminal, each command that prints a table or a receipt prints one line of JSON instead. For an API command, the line is the REST response body. Add `--json` to get the same line on a terminal.
@@ -70,7 +72,7 @@ When stderr is not a terminal, an error is one JSON line in the error envelope o
 | 6 | HTTP 429 after one retry |
 | 7 | HTTP 5xx or a network failure |
 
-When something does not work, run `cowl doctor`. It checks the setup and the connection, and it never prints the key, names, hosts or paths, so you can share its output in an issue.
+When something does not work, run `cowl doctor`. It checks the setup and the connection. It never prints the key, the names of the key, the org or the workspaces, hosts or paths, so you can share its output in an issue. It prints the agent name that cowl sends.
 
 ## Documentation
 

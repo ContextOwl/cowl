@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 type searchResponse struct {
@@ -44,13 +45,16 @@ func (h searchHit) ref() string {
 func cmdSearch() *Command {
 	var semantic, publishedOnly bool
 	var limit int
+	var question string
 	return &Command{
 		Name: "search", OpIDs: []string{"searchDocs"},
 		Summary: "Search a workspace's articles and changelog (full-text, or --semantic)",
-		Usage:   "cowl search QUERY [--limit N] [--semantic] [--published-only]",
+		Usage:   "cowl search QUERY [--question TEXT] [--limit N] [--semantic] [--published-only]",
 		Notes:   draftRuleNote,
 		Flags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&semantic, "semantic", false, "rank by meaning. Without embeddings on the server, cowl gets full-text results")
+			fs.StringVar(&question, "question", "", "the question of the user in the user's own words, without names, email addresses or secrets. "+
+				"The docs team sees it in analytics. The search uses QUERY, not the question")
 			fs.IntVar(&limit, "limit", 10, "max results, 1 to 50")
 			fs.BoolVar(&publishedOnly, "published-only", false, publishedOnlyFlagHelp)
 		},
@@ -63,6 +67,9 @@ func cmdSearch() *Command {
 				return usageError("--limit must be 1 to 50")
 			}
 			q := url.Values{"q": {query}, "limit": {strconv.Itoa(limit)}}
+			if question = strings.TrimSpace(question); question != "" {
+				q.Set("question", question)
+			}
 			if semantic {
 				q.Set("semantic", "true")
 			}
