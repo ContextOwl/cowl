@@ -231,8 +231,8 @@ func TestAnalyticsReportNotFoundSplit(t *testing.T) {
 	f := &fakeAPI{body: reportSplitJSON}
 	out, errOut, code := run(t, f, []string{"analytics", "report"}, runOpts{term: true})
 	want := "2026-09-07 to 2026-10-06: 120 reads by people (40 readers), 33 reads by AI agents, 210 crawler visits.\n" +
-		"18 searches by people, 4 found nothing. 9 searches by agents. 7 pages not found (people 2, AI agents 1, crawlers 3, other 1).\n" +
-		"\nnot found:\n" +
+		"18 searches by people, 4 found nothing. 9 searches by agents. 7 pages not found.\n" +
+		"\nnot found (people 2, AI agents 1, crawlers 3, other 1):\n" +
 		"PATH                       PEOPLE  AI AGENTS  CRAWLERS  OTHER\n" +
 		"/docs/platform/rotate-key  2       1          0         1\n" +
 		"/wp-login.php              0       0          3         0\n"
