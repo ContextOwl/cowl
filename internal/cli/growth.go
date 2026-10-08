@@ -235,10 +235,17 @@ func (t risingTable) notListed(minBaseline int) string {
 	return ""
 }
 
+// maxComparedDays is the longest range that the report compares with the
+// period before, as on the admin Analytics page. ContextOwl keeps daily
+// totals for 25 months. Both periods of a 365-day range fit in that time,
+// and the period before a 731-day range does not.
+const maxComparedDays = 365
+
 // printComparison prints the change of the reads and searches since the
-// period before the range. A server without previous prints nothing.
+// period before the range. It prints nothing when the server sends no
+// previous, or when the range is longer than maxComparedDays.
 func printComparison(a *App, days int, now reportTotals, before *reportTotals) {
-	if before == nil {
+	if before == nil || days > maxComparedDays {
 		return
 	}
 	fmt.Fprintf(a.Out, "compared with %s: reads by people %s, reads by AI agents %s, searches by people %s, searches by agents %s.\n",

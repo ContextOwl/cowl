@@ -15,6 +15,9 @@ const (
 		`"aiReferrals":{"reads":14,"readers":11,"previous":6,"assistants":[{"assistant":"ChatGPT","reads":10,"readers":8,"previous":4,"bar":100}]},` +
 		`"notFound":[{"path":"/docs/platform/rotate-key","people":2,"agents":1}]}`
 
+	// previousJSON is the previous field that servers of today send.
+	previousJSON = `"previous":{"reads":96,"readers":30,"agentReads":33,"agentSearches":12,"crawlerHits":190,"searches":18,"searchNoResults":2,"notFound":1}`
+
 	growthRuleJSON = `"rule":{"minCount":5,"minChange":25,"minScore":2,"minBaseline":10}`
 
 	growthReportJSON = `{"from":"2026-09-30","to":"2026-10-06","days":7,"textDays":90,` +
@@ -130,8 +133,7 @@ func TestAnalyticsReportSearchWindow(t *testing.T) {
 func TestAnalyticsReportWithoutGrowth(t *testing.T) {
 	line1 := "2026-09-30 to 2026-10-06: 120 reads by people (40 readers), 33 reads by AI agents, 210 crawler visits."
 	line2 := "18 searches by people, 4 found nothing. 9 searches by agents. 3 pages not found."
-	withPrevious := strings.Replace(todayReportJSON, `"topArticles"`,
-		`"previous":{"reads":96,"readers":30,"agentReads":33,"agentSearches":12,"crawlerHits":190,"searches":18,"searchNoResults":2,"notFound":1},"topArticles"`, 1)
+	withPrevious := strings.Replace(todayReportJSON, `"topArticles"`, previousJSON+`,"topArticles"`, 1)
 	tests := []struct {
 		name, body, line3 string
 	}{
@@ -154,6 +156,34 @@ func TestAnalyticsReportWithoutGrowth(t *testing.T) {
 			}
 			if !strings.Contains(out, "\nfrom AI assistants:\n") || !strings.Contains(out, "\nnot found:\n") {
 				t.Errorf("the tables of today are missing:\n%s", out)
+			}
+			if errOut != "" {
+				t.Errorf("stderr = %q, want empty", errOut)
+			}
+		})
+	}
+}
+
+// ContextOwl keeps daily totals for 25 months. So the report compares only a
+// range of up to 365 days with the period before, as the admin Analytics page
+// does.
+func TestAnalyticsReportComparesUpTo365Days(t *testing.T) {
+	tests := []struct {
+		days        int
+		from, line3 string
+	}{
+		{365, "2025-10-07", "compared with the 365 days before: reads by people +25%, reads by AI agents 0%, searches by people 0%, searches by agents -25%."},
+		{366, "2025-10-06", ""},
+		{731, "2024-10-06", ""},
+	}
+	for _, tt := range tests {
+		t.Run(itoa(tt.days)+" days", func(t *testing.T) {
+			body := strings.Replace(todayReportJSON, `"from":"2026-09-30","to":"2026-10-06","days":7,`,
+				`"from":"`+tt.from+`","to":"2026-10-06","days":`+itoa(tt.days)+`,`+previousJSON+`,`, 1)
+			out, errOut := runTerm(t, body, "analytics", "report", "--days", itoa(tt.days))
+			lines := strings.Split(out, "\n")
+			if len(lines) < 4 || !strings.HasPrefix(lines[0], tt.from+" to 2026-10-06: ") || lines[2] != tt.line3 {
+				t.Errorf("want line 1 from %s and line 3 = %q:\n%s", tt.from, tt.line3, out)
 			}
 			if errOut != "" {
 				t.Errorf("stderr = %q, want empty", errOut)
