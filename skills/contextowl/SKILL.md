@@ -87,9 +87,9 @@ cowl proposals get 12
 ## Find gaps
 
 ```bash
-cowl analytics next                              # questions to answer, pages to update, missing pages to fix
+cowl analytics next                              # questions to answer, pages to update, missing pages to fix, rising topics
 cowl insights                                    # what agents asked in the last 30 days, and what went unanswered
-cowl analytics report --days 7                   # reads by people and agents, searches, AI assistants, pages not found
+cowl analytics report --days 7                   # reads by people and agents, what is rising, searches, AI assistants, pages not found
 ```
 
 Run them when the user asks which docs are missing or which docs to write next. A question is unanswered when its search found nothing, or when the same key or reader opened none of the top 3 results within 30 minutes. Propose a page for each gap that the user wants filled. The key needs the `analytics.read` permission.
