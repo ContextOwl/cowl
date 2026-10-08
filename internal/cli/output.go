@@ -8,6 +8,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
 )
 
 // jsonOut reports whether table and receipt commands print JSON: with
@@ -79,21 +80,34 @@ func (a *App) table(headers []string, rows [][]string) {
 	for _, r := range rows {
 		cells := make([]string, len(r))
 		for i, c := range r {
-			cells[i] = strings.Join(strings.Fields(c), " ")
+			cells[i] = cellText(c)
 		}
 		fmt.Fprintln(tw, strings.Join(cells, "\t"))
 	}
 	tw.Flush()
 }
 
-// fields prints label and value pairs as aligned lines. Values collapse
-// whitespace like table cells.
+// fields prints label and value pairs as aligned lines. Each value goes
+// through cellText, like a table cell.
 func (a *App) fields(pairs [][2]string) {
 	tw := tabwriter.NewWriter(a.Out, 0, 4, 2, ' ', 0)
 	for _, p := range pairs {
-		fmt.Fprintf(tw, "%s\t%s\n", p[0], strings.Join(strings.Fields(p[1]), " "))
+		fmt.Fprintf(tw, "%s\t%s\n", p[0], cellText(p[1]))
 	}
 	tw.Flush()
+}
+
+// cellText puts server text on one line for a table cell or a field value.
+// It drops each control character that is not whitespace. Then it collapses
+// each run of whitespace to one space.
+func cellText(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && !unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, s)
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // confirm asks before a destructive action. --yes bypasses; without a TTY it

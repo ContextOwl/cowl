@@ -106,6 +106,19 @@ func TestAnalyticsReportGrowth(t *testing.T) {
 	}
 }
 
+// A rising search can hold control characters. Its table cell drops them.
+func TestRisingTablesDropControlCharacters(t *testing.T) {
+	body := strings.Replace(growthReportJSON, `"label":"sso with okta"`, `"label":"sso\u001b with\u0007 okta"`, 1)
+	if body == growthReportJSON {
+		t.Fatal("growthReportJSON has no rising search sso with okta")
+	}
+	out, _ := runTerm(t, body, "analytics", "report", "-w", "platform", "--days", "7")
+	row := "\nsso with okta  9        0       new     14        5\n"
+	if !strings.Contains(out, row) || strings.ContainsAny(out, "\x1b\a") {
+		t.Errorf("stdout must have the row %q and no control character:\n%q", row, out)
+	}
+}
+
 // The comparison line and the page lists cover the range of the report. The
 // search lists cover growth.searchDays, which can be shorter.
 func TestAnalyticsReportSearchWindow(t *testing.T) {
