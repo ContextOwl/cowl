@@ -547,7 +547,7 @@ func TestCommands(t *testing.T) {
 			name: "analytics report splits not found", args: []string{"analytics", "report"},
 			response:   reportSplitJSON,
 			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/analytics", wantQuery: "days=30",
-			wantTerm: []string{"7 pages not found (people 2, AI agents 1, crawlers 3, other 1).", "AI AGENTS", "CRAWLERS", "OTHER"},
+			wantTerm: []string{"7 pages not found.", "not found (people 2, AI agents 1, crawlers 3, other 1):", "AI AGENTS", "CRAWLERS", "OTHER"},
 		},
 		{
 			name: "analytics next", args: []string{"analytics", "next"},

@@ -91,12 +91,11 @@ cowl proposals get 12
 
 ```bash
 cowl analytics next                              # questions to answer, pages to update, missing pages to fix
-cowl insights --days 90                          # what AI agents asked, and what went unanswered
-cowl analytics questions --unanswered            # every question with an unanswered search or a gap report
+cowl insights                                    # what agents asked in the last 30 days, and what went unanswered
 cowl analytics report --days 7                   # reads by people and agents, searches, AI assistants, pages not found
 ```
 
-Run them when the user asks which docs are missing or which docs to write next. A question is unanswered when its search found no match, or when the same key or reader opened none of the top 3 results within 30 minutes. When one question has several searches, it is answered when one of them led to a read. Propose a page for each gap that the user wants filled. The key needs the `analytics.read` permission.
+Run them when the user asks which docs are missing or which docs to write next. Add `--days 90` to `cowl insights` for a longer range. `cowl analytics questions --unanswered` lists every question with an unanswered search or a gap report. A question is unanswered when its search found no match, or when the same key or reader opened none of the top 3 results within 30 minutes. When one question has several searches, it is answered when one of them led to a read. Propose a page for each gap that the user wants filled. The key needs the `analytics.read` permission.
 
 When the docs do not answer the user's question, report it to the docs team with `cowl analytics gap "How do I rotate a key without downtime?" --slug api-keys`. Send the question without names, email addresses or secrets. Add `--slug` only when one article came close.
 
