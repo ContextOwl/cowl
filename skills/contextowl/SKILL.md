@@ -90,9 +90,9 @@ cowl proposals get 12
 ## Find gaps
 
 ```bash
-cowl analytics next                              # questions to answer, pages to update, missing pages to fix
+cowl analytics next                              # questions to answer, pages to update, missing pages to fix, rising topics
 cowl insights                                    # what agents asked in the last 30 days, and what went unanswered
-cowl analytics report --days 7                   # reads by people and agents, searches, AI assistants, pages not found
+cowl analytics report --days 7                   # reads by people and agents, what is rising, searches, AI assistants, pages not found
 ```
 
 Run them when the user asks which docs are missing or which docs to write next. Add `--days 90` to `cowl insights` for a longer range. `cowl analytics questions --unanswered` lists the questions of AI agents with an unanswered search or a gap report. Add `--actor people` for the questions of people, or `--actor tools` for cowl and scripts without an agent name. A question is unanswered when its search found no match, or when the same key or reader opened none of the top 3 results within 30 minutes. When one question has several searches, it is answered when one of them led to a read. Propose a page for each gap that the user wants filled. The key needs the `analytics.read` permission.
