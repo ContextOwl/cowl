@@ -350,7 +350,7 @@ func cmdArticlesPlace() *Command {
 			return emitAs(a, raw, func(res placement) error {
 				a.printPlaced("article", slug, section, position, res.Visibility)
 				if res.VisibilityChanged {
-					fmt.Fprintln(a.Err, keptAccessNote(slug, res.Visibility))
+					fmt.Fprint(a.Err, a.keptAccessNote(slug, res.Visibility))
 				}
 				return nil
 			})
@@ -380,11 +380,16 @@ func (a *App) printPlaced(kind, slug, section string, position int, visibility s
 
 // keptAccessNote explains a placement with visibilityChanged: the published
 // article left a stricter section and kept its access as its own visibility.
-func keptAccessNote(slug, visibility string) string {
+// It gives the command that opens the article. updateArticle refuses a
+// generated OpenAPI page, and the response does not say whether the article
+// is one, so the note also gives the detach command.
+func (a *App) keptAccessNote(slug, visibility string) string {
 	section := "the section"
 	if visibility != "" {
 		section = "the " + visibility + " section"
 	}
-	return "note: " + slug + " kept the access of " + section + " that it left, so the move did not open it to more readers. " +
-		"To open it, run 'cowl articles update " + slug + " --visibility public'"
+	return "note: " + slug + " kept the access of " + section + " that it left, so the move did not open it to more readers. To open it, run:\n" +
+		"  " + a.suggest("articles", "update", slug, "--visibility", "public") + "\n" +
+		"If the update fails with openapi_generated, detach the generated page first. Later syncs then skip the page. To detach it, run:\n" +
+		"  " + a.suggest("openapi", "detach-page", slug) + "\n"
 }
