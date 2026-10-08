@@ -192,11 +192,18 @@ func baseURLKind(base string) string {
 	return "custom"
 }
 
-func (a *App) configPath() (string, error) {
+// configOverride returns the config file that --config or the environment
+// names, or "" when cowl uses the default file.
+func (a *App) configOverride() string {
 	if a.g.config != "" {
-		return a.g.config, nil
+		return a.g.config
 	}
-	if p, _ := a.envFirst("CONTEXTOWL_CONFIG", "COWL_CONFIG"); p != "" {
+	p, _ := a.envFirst("CONTEXTOWL_CONFIG", "COWL_CONFIG")
+	return p
+}
+
+func (a *App) configPath() (string, error) {
+	if p := a.configOverride(); p != "" {
 		return p, nil
 	}
 	dir, err := os.UserConfigDir()

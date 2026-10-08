@@ -8,6 +8,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
 )
 
 // jsonOut reports whether table and receipt commands print JSON: with
@@ -70,6 +71,35 @@ func emitAs[T any](a *App, raw []byte, human func(v T) error) error {
 	})
 }
 
+// suggest returns a cowl command for a person to paste. The command ends with
+// -w and the workspace of this run. It also names the config file when a flag
+// or the environment named one. So a pasted command acts on the same
+// workspace with the same config file as this run.
+func (a *App) suggest(args ...string) string {
+	words := append([]string{"cowl"}, args...)
+	words = append(words, "-w", a.workspace)
+	if path := a.configOverride(); path != "" {
+		words = append(words, "--config", path)
+	}
+	for i, w := range words {
+		words[i] = shellQuote(w)
+	}
+	return strings.Join(words, " ")
+}
+
+// shellQuote returns s as one word for a POSIX shell. A word of letters,
+// digits and the characters -_./:@,+ stays as it is.
+func shellQuote(s string) string {
+	if s != "" && !strings.ContainsFunc(s, needsShellQuote) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+func needsShellQuote(r rune) bool {
+	return !('a' <= r && r <= 'z' || 'A' <= r && r <= 'Z' || '0' <= r && r <= '9' || strings.ContainsRune("-_./:@,+", r))
+}
+
 // table renders rows with upper-case headers, tab-aligned. Cell values are
 // server-controlled; embedded tabs/newlines would corrupt columns, so all
 // whitespace runs collapse to single spaces.
@@ -79,21 +109,34 @@ func (a *App) table(headers []string, rows [][]string) {
 	for _, r := range rows {
 		cells := make([]string, len(r))
 		for i, c := range r {
-			cells[i] = strings.Join(strings.Fields(c), " ")
+			cells[i] = cellText(c)
 		}
 		fmt.Fprintln(tw, strings.Join(cells, "\t"))
 	}
 	tw.Flush()
 }
 
-// fields prints label and value pairs as aligned lines. Values collapse
-// whitespace like table cells.
+// fields prints label and value pairs as aligned lines. Each value goes
+// through cellText, like a table cell.
 func (a *App) fields(pairs [][2]string) {
 	tw := tabwriter.NewWriter(a.Out, 0, 4, 2, ' ', 0)
 	for _, p := range pairs {
-		fmt.Fprintf(tw, "%s\t%s\n", p[0], strings.Join(strings.Fields(p[1]), " "))
+		fmt.Fprintf(tw, "%s\t%s\n", p[0], cellText(p[1]))
 	}
 	tw.Flush()
+}
+
+// cellText puts server text on one line for a table cell or a field value.
+// It drops each control character that is not whitespace. Then it collapses
+// each run of whitespace to one space.
+func cellText(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && !unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, s)
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // confirm asks before a destructive action. --yes bypasses; without a TTY it

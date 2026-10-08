@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -23,6 +24,9 @@ type searchHit struct {
 	Snippet string   `json:"snippet"`
 	URL     string   `json:"url"`
 	Score   *float64 `json:"score"`
+	// Learned is true when people and agents opened the article after
+	// similar searches, so it ranks higher. The API leaves it out when false.
+	Learned bool `json:"learned"`
 }
 
 type slugSuggestion struct {
@@ -50,12 +54,13 @@ func cmdSearch() *Command {
 		Name: "search", OpIDs: []string{"searchDocs"},
 		Summary: "Search a workspace's articles and changelog (full-text, or --semantic)",
 		Usage:   "cowl search QUERY [--question TEXT] [--limit N] [--semantic] [--published-only]",
+		Notes:   draftRuleNote,
 		Flags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&semantic, "semantic", false, "rank by meaning. Without embeddings on the server, cowl gets full-text results")
 			fs.StringVar(&question, "question", "", "the question of the user in the user's own words, without names, email addresses or secrets. "+
 				"The docs team sees it in analytics. The search uses QUERY, not the question")
 			fs.IntVar(&limit, "limit", 10, "max results, 1 to 50")
-			fs.BoolVar(&publishedOnly, "published-only", false, "leave out DRAFT and IN REVIEW articles")
+			fs.BoolVar(&publishedOnly, "published-only", false, publishedOnlyFlagHelp)
 		},
 		Run: func(a *App, args []string) error {
 			query := joinArgs(args)
@@ -96,6 +101,10 @@ func cmdSearch() *Command {
 				if resp.Semantic {
 					headers = append(headers, "SCORE")
 				}
+				learned := slices.ContainsFunc(resp.Results, func(h searchHit) bool { return h.Learned })
+				if learned {
+					headers = append(headers, "LEARNED")
+				}
 				rows := make([][]string, 0, len(resp.Results))
 				for _, r := range resp.Results {
 					row := []string{r.ref(), r.Type, dash(r.Status), r.Title, dash(snippetText(r.Snippet)), dash(r.URL)}
@@ -105,6 +114,9 @@ func cmdSearch() *Command {
 							score = strconv.FormatFloat(*r.Score, 'f', 3, 64)
 						}
 						row = append(row, score)
+					}
+					if learned {
+						row = append(row, yesNo(r.Learned))
 					}
 					rows = append(rows, row)
 				}

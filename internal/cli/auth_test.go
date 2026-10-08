@@ -7,10 +7,33 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
+
+// meDrafts is meJSON from a server that sends readsDrafts. A key without a
+// draft permission reads published articles only, so the false body has no
+// article.propose.
+func meDrafts(readsDrafts bool) string {
+	body := meJSON
+	if !readsDrafts {
+		body = strings.Replace(body, `"article.propose",`, "", 1)
+	}
+	return strings.TrimSuffix(body, "}") + `,"readsDrafts":` + strconv.FormatBool(readsDrafts) + "}"
+}
+
+// fieldLine returns the line of out that starts with label, with its
+// whitespace collapsed, or "" when out has no such line.
+func fieldLine(out, label string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, label) {
+			return strings.Join(strings.Fields(line), " ")
+		}
+	}
+	return ""
+}
 
 func writeConfig(t *testing.T, cfg Config) string {
 	t.Helper()
@@ -240,6 +263,69 @@ func TestAuthStatus(t *testing.T) {
 	out, _, code = run(t, f, []string{"auth", "status"}, runOpts{})
 	if code != 0 || out != meJSON+"\n" {
 		t.Errorf("a pipe gets the getMe body: exit=%d out=%q", code, out)
+	}
+}
+
+func TestKeyDraftReads(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"reads drafts", meDrafts(true), "drafts: yes"},
+		{"published pages only", meDrafts(false), "drafts: no, published pages only"},
+		{"server without readsDrafts", meJSON, ""},
+	}
+	for _, tt := range tests {
+		for _, args := range [][]string{{"whoami"}, {"auth", "status"}} {
+			t.Run(tt.name+"/"+strings.Join(args, " "), func(t *testing.T) {
+				f := &fakeAPI{body: tt.body}
+				out, errOut, code := run(t, f, args, runOpts{term: true})
+				if code != 0 {
+					t.Fatalf("exit %d: %s", code, errOut)
+				}
+				if got := fieldLine(out, "drafts:"); got != tt.want {
+					t.Errorf("drafts line = %q, want %q\n%s", got, tt.want, out)
+				}
+				out, _, code = run(t, f, args, runOpts{})
+				if code != 0 || out != tt.body+"\n" {
+					t.Errorf("a pipe gets the getMe body as it is: exit=%d out=%q", code, out)
+				}
+			})
+		}
+	}
+}
+
+func TestWhoamiGolden(t *testing.T) {
+	const fields = "key:          cowl_pat_test0t…\n" +
+		"name:         \"Support agent\"\n" +
+		"expires:      2026-11-03 09:12\n" +
+		"org:          ContextOwl Developers (developers, plan free)\n" +
+		"role:         viewer\n" +
+		"workspace:    platform (bound key)\n" +
+		"permissions:  article.read, search\n" +
+		"blocked:      workspace.create (plan)\n"
+	const workspaces = "\n" +
+		"WORKSPACE  NAME            ACCESS\n" +
+		"platform   Developer Docs  public\n"
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"published pages only", meDrafts(false), fields + "drafts:       no, published pages only\n" + workspaces},
+		{"server without readsDrafts", strings.Replace(meJSON, `"article.propose",`, "", 1), fields + workspaces},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, errOut, code := run(t, &fakeAPI{body: tt.body}, []string{"whoami"}, runOpts{term: true})
+			if code != 0 {
+				t.Fatalf("exit %d: %s", code, errOut)
+			}
+			if out != tt.want {
+				t.Errorf("whoami printed:\n%s\nwant:\n%s", out, tt.want)
+			}
+		})
 	}
 }
 
@@ -481,6 +567,36 @@ func TestDoctor(t *testing.T) {
 			})
 		}
 	})
+	t.Run("draft reads", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			body string
+			json string
+			line string
+		}{
+			{"reads drafts", meDrafts(true), `"readsDrafts":true`, "drafts yes"},
+			{"published pages only", meDrafts(false), `"readsDrafts":false`, "drafts no, published pages only"},
+			{"server without readsDrafts", meJSON, "", ""},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				f := &fakeAPI{body: tc.body}
+				out, errOut, code := run(t, f, []string{"doctor"}, runOpts{})
+				if code != 0 {
+					t.Fatalf("exit %d: %s", code, errOut)
+				}
+				if tc.json == "" && (strings.Contains(out, "readsDrafts") || doctorJSON(t, out).ReadsDrafts != nil) {
+					t.Errorf("the report must leave out readsDrafts when the server does not send it:\n%s", out)
+				}
+				if tc.json != "" && !strings.Contains(out, tc.json) {
+					t.Errorf("report missing %s:\n%s", tc.json, out)
+				}
+				term, _, _ := run(t, f, []string{"doctor"}, runOpts{term: true})
+				if got := fieldLine(term, "drafts"); got != tc.line {
+					t.Errorf("drafts line = %q, want %q\n%s", got, tc.line, term)
+				}
+			})
+		}
+	})
 	t.Run("no key", func(t *testing.T) {
 		f := &fakeAPI{}
 		out, _, code := run(t, f, []string{"doctor"}, runOpts{env: map[string]string{"CONTEXTOWL_PAT": "", "CONTEXTOWL_BASE_URL": ""}})
@@ -572,6 +688,81 @@ func TestDoctor(t *testing.T) {
 		rep := doctorJSON(t, out)
 		if code != 0 || rep.Config != "invalid" || rep.API.Result != "ok" || strings.Contains(out, bad) {
 			t.Errorf("exit=%d report=%+v", code, rep)
+		}
+	})
+}
+
+// meOpenSourceJSON is the getMe body of an org-wide key in an org on the Open
+// source plan. The plan includes every paid feature, so the server blocks no
+// permission of the key for the plan.
+const meOpenSourceJSON = `{"key":{"name":"Release bot","prefix":"cowl_pat_test0t","expiresAt":null},` +
+	`"org":{"id":"example-project","name":"Example Project","plan":"opensource"},"role":"admin","boundWorkspace":null,` +
+	`"workspaces":[{"id":"docs","name":"Project Docs","accessMode":"public"}],` +
+	`"permissions":["analytics.read","search","workspace.create"],"blocked":[]}`
+
+// cowl keeps no list of plans. It prints the plan id that the server sends, so
+// the Open source plan needs no special case. cowl also matches no error
+// message, so a new upgrade_required message needs no cowl change.
+func TestOpenSourcePlan(t *testing.T) {
+	for _, args := range [][]string{{"whoami"}, {"auth", "status"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			f := &fakeAPI{body: meOpenSourceJSON}
+			out, errOut, code := run(t, f, args, runOpts{term: true})
+			if code != 0 {
+				t.Fatalf("exit %d: %s", code, errOut)
+			}
+			if !strings.Contains(out, " Example Project (example-project, plan opensource)\n") {
+				t.Errorf("the org line must name the plan opensource:\n%s", out)
+			}
+			out, _, code = run(t, f, args, runOpts{})
+			if code != 0 || out != meOpenSourceJSON+"\n" {
+				t.Errorf("a pipe gets the getMe body as it is: exit=%d out=%q", code, out)
+			}
+		})
+	}
+	t.Run("doctor", func(t *testing.T) {
+		f := &fakeAPI{body: meOpenSourceJSON}
+		out, errOut, code := run(t, f, []string{"doctor"}, runOpts{})
+		if code != 0 {
+			t.Fatalf("exit %d: %s", code, errOut)
+		}
+		if rep := doctorJSON(t, out); rep.Plan != "opensource" || !slices.Equal(rep.Notes, []string{"No problems found."}) {
+			t.Errorf("the report must name the plan and add no note: %+v", rep)
+		}
+		term, _, _ := run(t, f, []string{"doctor"}, runOpts{term: true})
+		var plan string
+		for _, line := range strings.Split(term, "\n") {
+			if cols := strings.Fields(line); len(cols) == 2 && cols[0] == "plan" {
+				plan = cols[1]
+			}
+		}
+		if plan != "opensource" {
+			t.Errorf("plan line = %q, want opensource:\n%s", plan, term)
+		}
+	})
+	t.Run("workspaces create help", func(t *testing.T) {
+		out, _, code := run(t, &fakeAPI{}, []string{"workspaces", "create", "--help"}, runOpts{})
+		if want := "Create a workspace (org-wide key, paid or Open source plan)\n"; code != 0 || !strings.HasPrefix(out, want) {
+			t.Errorf("help must name both plans that create a workspace: exit=%d\n%s", code, out)
+		}
+	})
+	t.Run("workspaces create upgrade_required", func(t *testing.T) {
+		for _, message := range []string{
+			"workspace.create needs a paid plan or an active trial",
+			"workspace.create needs a paid plan, the Open source plan, or an active trial",
+		} {
+			body := `{"error":{"code":"upgrade_required","message":"` + message + `","status":402,` +
+				`"details":{"feature":"mcp_extended","permission":"workspace.create"}}}`
+			f := &fakeAPI{status: http.StatusPaymentRequired, body: body}
+			args := []string{"workspaces", "create", "Docs"}
+			_, errOut, code := run(t, f, args, runOpts{})
+			if code != exitAuth || errOut != body+"\n" {
+				t.Errorf("a pipe gets exit 4 and the envelope as it is: exit=%d stderr=%q", code, errOut)
+			}
+			_, errOut, code = run(t, f, args, runOpts{term: true})
+			if code != exitAuth || !strings.HasPrefix(errOut, "cowl: upgrade_required: "+message+"\n") {
+				t.Errorf("a terminal gets exit 4 and the message as it is: exit=%d stderr=%q", code, errOut)
+			}
 		}
 	})
 }
