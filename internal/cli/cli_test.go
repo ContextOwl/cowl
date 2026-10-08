@@ -1140,6 +1140,8 @@ func TestReadHelpStatesTheDraftRule(t *testing.T) {
 		{[]string{"articles", "list", "--help"}, []string{"usage: cowl articles list", "-published-only\n", "A key that reads no drafts never gets them",
 			"-status string\n", "A key that reads no drafts gets no DRAFT or IN REVIEW rows"}},
 		{[]string{"articles", "get", "--help"}, []string{"usage: cowl articles get", "a DRAFT or IN REVIEW article is not found,\nand so is a slug that redirects to one."}},
+		{[]string{"sections", "list", "--help"}, []string{"usage: cowl sections list", "the ARTICLES column counts published\narticles only, and so does articleCount in the JSON output.",
+			"A section that\nholds only drafts shows 0."}},
 	}
 	f := &fakeAPI{}
 	for _, tt := range tests {

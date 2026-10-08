@@ -17,6 +17,11 @@ func cmdSectionsList() *Command {
 		Group: "sections", Name: "list", OpIDs: []string{"listSections"},
 		Summary: "List the sidebar sections in sidebar order",
 		Usage:   "cowl sections list [-w WORKSPACE]",
+		Notes: draftRuleNote + `
+
+For a key that reads no drafts, the ARTICLES column counts published
+articles only, and so does articleCount in the JSON output. A section that
+holds only drafts shows 0.`,
 		Run: func(a *App, args []string) error {
 			if err := noArgs(args); err != nil {
 				return err
