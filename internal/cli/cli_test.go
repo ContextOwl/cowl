@@ -29,6 +29,7 @@ type captured struct {
 	Auth        string
 	ContentType string
 	UserAgent   string
+	Agent       string
 }
 
 type fakeResp struct {
@@ -56,6 +57,7 @@ func (f *fakeAPI) handler() http.Handler {
 		f.reqs = append(f.reqs, captured{
 			Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Body: string(body),
 			Auth: r.Header.Get("Authorization"), ContentType: r.Header.Get("Content-Type"), UserAgent: r.Header.Get("User-Agent"),
+			Agent: r.Header.Get(agentHeader),
 		})
 		status, out := f.status, f.body
 		if resp, ok := f.routes[r.Method+" "+r.URL.Path]; ok {
@@ -506,22 +508,26 @@ func TestCommands(t *testing.T) {
 			wantTerm: []string{`no results for "api kyes"`, "close titles", "api-keys", "Agent Keys"},
 		},
 		{
-			name: "insights", args: []string{"insights", "-w", "platform"},
-			response: `{"days":30,"recordsQueries":true,"calls":21,"searches":12,"reads":8,"unansweredSearches":7,"unansweredShare":58,"keys":2,` +
-				`"questions":[{"query":"sso with okta","count":3,"unanswered":3,"lastSeen":"2026-10-04T16:20:00Z"}],` +
-				`"unanswered":[{"query":"sso with okta","count":3,"unanswered":3,"lastSeen":"2026-10-04T16:20:00Z"}],` +
-				`"mostRead":[{"slug":"mcp","title":"MCP Quickstart","agentReads":3,"humanViews":40}],` +
-				`"clients":[{"label":"claude-code","value":11,"bar":100}],"keyLabels":[{"label":"laptop","value":11,"bar":100}]}`,
-			wantMethod: "GET", wantPath: "/api/v1/workspaces/platform/agent-insights",
-			wantTerm: []string{"last 30 days: 21 calls, 12 searches, 8 reads, 2 keys. 58% of searches unanswered (7).",
-				"unanswered:", "QUESTION", "LAST SEEN", "sso with okta", "2026-10-04 16:20",
-				"most read by agents:", "MCP Quickstart", "AGENT READS", "40", "clients:", "claude-code", "keys:", "laptop"},
+			name: "search with a question", args: []string{"search", "key rotation", "--question", " How do I rotate my key? "},
+			response:   `{"semantic":false,"results":[{"type":"article","slug":"api-keys","title":"Agent Keys","status":"STABLE","url":"https://docs.example.com/docs/ws/api-keys","snippet":"rotate"}]}`,
+			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/search", wantQuery: "limit=10&q=key+rotation&question=How+do+I+rotate+my+key%3F",
+			wantTerm: []string{"SLUG/ID", "api-keys", "rotate"},
+		},
+		{
+			name: "insights", args: []string{"insights", "-w", "platform", "--days", "90", "--principal", "key"},
+			response:   insightsJSON,
+			wantMethod: "GET", wantPath: "/api/v1/workspaces/platform/agent-insights", wantQuery: "days=90&principal=key",
+			wantTerm: []string{"last 90 days (who asked: agent keys): 21 calls, 12 searches, 8 reads, 2 gap reports, 2 keys. 58% of searches unanswered (7).",
+				"not counted as AI agents: 14 calls by integrations such as cowl, 3 calls by scripts.",
+				"who asked:", "signed-in readers", "unanswered:", "AGENTS", "claude-code, cursor", "2026-10-04 16:20",
+				"most read by agents:", "MCP Quickstart", "AGENT READS", "40", "agents:", "REQUESTS", "keys:", "laptop"},
 		},
 		{
 			name: "insights without traffic", args: []string{"insights"},
-			response:   `{"days":30,"recordsQueries":true,"calls":0,"searches":0,"reads":0,"unansweredSearches":0,"unansweredShare":0,"keys":0,"questions":[],"unanswered":[],"mostRead":[],"clients":[],"keyLabels":[]}`,
+			response: `{"days":30,"textDays":90,"recordsQueries":true,"calls":0,"searches":0,"reads":0,"reports":0,"unansweredSearches":0,"unansweredShare":0,"keys":0,` +
+				`"integrations":4,"scripts":0,"principals":[],"questions":[],"unanswered":[],"mostRead":[],"clients":[],"keyLabels":[]}`,
 			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/agent-insights",
-			wantTerm: []string{"no agent calls in the last 30 days"},
+			wantTerm: []string{"no AI agent calls or reads in the last 30 days"},
 		},
 		{
 			name: "analytics report", args: []string{"analytics", "report", "-w", "platform", "--days", "7"},
@@ -536,6 +542,12 @@ func TestCommands(t *testing.T) {
 				"18 searches by people, 4 found nothing. 9 searches by agents. 3 pages not found.",
 				"from AI assistants:", "ChatGPT", "most read by people:", "MCP Quickstart", "top searches:", "NO RESULTS",
 				"not found:", "/docs/platform/rotate-key"},
+		},
+		{
+			name: "analytics report splits not found", args: []string{"analytics", "report"},
+			response:   reportSplitJSON,
+			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/analytics", wantQuery: "days=30",
+			wantTerm: []string{"7 pages not found (people 2, AI agents 1, crawlers 3, other 1).", "AI AGENTS", "CRAWLERS", "OTHER"},
 		},
 		{
 			name: "analytics next", args: []string{"analytics", "next"},
@@ -553,6 +565,19 @@ func TestCommands(t *testing.T) {
 			response:   `{"days":7,"textDays":30,"semantic":false,"topics":[],"pages":[],"missing":[]}`,
 			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/content-insights", wantQuery: "days=7",
 			wantTerm: []string{"nothing to write, update, or fix in the last 7 days"},
+		},
+		{
+			name: "analytics next splits fix", args: []string{"analytics", "next"},
+			response:   nextSplitJSON,
+			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/content-insights", wantQuery: "days=30",
+			wantTerm: []string{"fix:", "PEOPLE", "AI AGENTS", "CRAWLERS", "OTHER", "REDIRECT TO", "/docs/platform/rotate-key"},
+		},
+		{
+			name: "analytics questions", args: []string{"analytics", "questions", "--days", "7", "--actor", "agents", "--principal", "reader", "--unanswered", "--limit", "2", "--offset", "4"},
+			response:   questionsJSON,
+			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/questions",
+			wantQuery: "actor=agents&days=7&limit=2&offset=4&principal=reader&unanswered=true",
+			wantTerm:  []string{"2026-09-30 to 2026-10-06: 9 questions from AI agents (who asked: signed-in readers), only unanswered or reported.", "QUESTION", "sso with okta"},
 		},
 		{
 			name: "analytics gap", args: []string{"analytics", "gap", "How do I rotate", "a key?", "--slug", "api-keys"},
@@ -594,6 +619,9 @@ func TestCommands(t *testing.T) {
 			}
 			if !strings.HasPrefix(req.UserAgent, "cowl/") {
 				t.Errorf("user agent = %q", req.UserAgent)
+			}
+			if req.Agent != "" {
+				t.Errorf("%s header = %q, want none without COWL_AGENT or an agent environment", agentHeader, req.Agent)
 			}
 			if tt.wantBody != nil {
 				got := decodeBody(t, req.Body)
@@ -648,6 +676,15 @@ func TestUsageErrors(t *testing.T) {
 		{"analytics report days range", []string{"analytics", "report", "--days", "0"}, "--days must be 1 to 731", ""},
 		{"analytics next days range", []string{"analytics", "next", "--days", "91"}, "--days must be 1 to 90", ""},
 		{"analytics gap needs a question", []string{"analytics", "gap"}, "QUESTION is required", ""},
+		{"insights days range", []string{"insights", "--days", "91"}, "--days must be 1 to 90", ""},
+		{"insights rejects an unknown principal", []string{"insights", "--principal", "admin"}, "--principal must be key, anonymous or reader", ""},
+		{"insights rejects an empty principal", []string{"insights", "--principal", ""}, "--principal must be key, anonymous or reader", ""},
+		{"analytics questions days range", []string{"analytics", "questions", "--days", "0"}, "--days must be 1 to 90", ""},
+		{"analytics questions rejects an unknown actor", []string{"analytics", "questions", "--actor", "bots"}, "--actor must be agents, people or tools", ""},
+		{"analytics questions limit range", []string{"analytics", "questions", "--limit", "1001"}, "--limit must be 1 to 1000", ""},
+		{"analytics questions offset range", []string{"analytics", "questions", "--offset", "-1"}, "--offset must be 0 or more", ""},
+		{"analytics questions csv or json", []string{"analytics", "questions", "--csv", "--json"}, "use --csv or --json, not both", ""},
+		{"analytics questions takes no args", []string{"analytics", "questions", "sso"}, "unexpected argument: sso", ""},
 		{"articles list rejects bad status", []string{"articles", "list", "--status", "DRAFT,PUBLISHED"}, "got PUBLISHED", ""},
 		{"articles get needs a slug", []string{"articles", "get"}, "at least one SLUG", ""},
 		{"articles get section needs one slug", []string{"articles", "get", "a", "b", "--section", "x"}, "--section works with one SLUG only", ""},
@@ -1135,7 +1172,7 @@ func TestRESTOpIDs(t *testing.T) {
 		"attachOpenAPI", "autofillLanding", "createArticle", "createChangelog", "createOpenAPISection", "createSection",
 		"createWorkspace", "deleteChangelog", "deleteWorkspace", "detachOpenAPI", "detachOpenAPIPage", "getAgentInsights",
 		"getAnalyticsReport", "getArticle", "getChangelog", "getContentInsights", "getLanding", "getMe", "getOpenAPISpec",
-		"getOpenAPIStatus", "listArticles", "listChangelog", "listOpenAPIPages", "listProposals", "listSections",
+		"getOpenAPIStatus", "listArticles", "listChangelog", "listOpenAPIPages", "listProposals", "listQuestions", "listSections",
 		"listWorkspaces", "placeArticle", "placeOpenAPIPage", "proposeArticleEdit", "proposeLandingEdit", "reportContentGap",
 		"searchDocs", "setLanding", "syncOpenAPI", "updateArticle", "updateChangelog", "updateWorkspace", "uploadImage",
 	}

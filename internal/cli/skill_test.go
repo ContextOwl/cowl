@@ -17,8 +17,9 @@ var readOnlySkillTools = []string{
 	"Bash(cowl search *)", "Bash(cowl articles get *)", "Bash(cowl articles list *)", "Bash(cowl articles list)",
 	"Bash(cowl changelog list *)", "Bash(cowl changelog list)", "Bash(cowl changelog get *)",
 	"Bash(cowl proposals list *)", "Bash(cowl proposals list)", "Bash(cowl proposals get *)",
-	"Bash(cowl whoami)", "Bash(cowl doctor)", "Bash(cowl insights)",
+	"Bash(cowl whoami)", "Bash(cowl doctor)", "Bash(cowl insights)", "Bash(cowl insights *)",
 	"Bash(cowl analytics report)", "Bash(cowl analytics report *)", "Bash(cowl analytics next)", "Bash(cowl analytics next *)",
+	"Bash(cowl analytics questions)", "Bash(cowl analytics questions *)",
 }
 
 type skillFile struct {
