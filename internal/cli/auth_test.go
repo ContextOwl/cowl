@@ -585,7 +585,8 @@ const meOpenSourceJSON = `{"key":{"name":"Release bot","prefix":"cowl_pat_test0t
 	`"permissions":["analytics.read","search","workspace.create"],"blocked":[]}`
 
 // cowl keeps no list of plans. It prints the plan id that the server sends, so
-// the Open source plan needs no special case.
+// the Open source plan needs no special case. cowl also matches no error
+// message, so a new upgrade_required message needs no cowl change.
 func TestOpenSourcePlan(t *testing.T) {
 	for _, args := range [][]string{{"whoami"}, {"auth", "status"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
@@ -627,6 +628,25 @@ func TestOpenSourcePlan(t *testing.T) {
 		out, _, code := run(t, &fakeAPI{}, []string{"workspaces", "create", "--help"}, runOpts{})
 		if want := "Create a workspace (org-wide key, paid or Open source plan)\n"; code != 0 || !strings.HasPrefix(out, want) {
 			t.Errorf("help must name both plans that create a workspace: exit=%d\n%s", code, out)
+		}
+	})
+	t.Run("workspaces create upgrade_required", func(t *testing.T) {
+		for _, message := range []string{
+			"workspace.create needs a paid plan or an active trial",
+			"workspace.create needs a paid plan, the Open source plan, or an active trial",
+		} {
+			body := `{"error":{"code":"upgrade_required","message":"` + message + `","status":402,` +
+				`"details":{"feature":"mcp_extended","permission":"workspace.create"}}}`
+			f := &fakeAPI{status: http.StatusPaymentRequired, body: body}
+			args := []string{"workspaces", "create", "Docs"}
+			_, errOut, code := run(t, f, args, runOpts{})
+			if code != exitAuth || errOut != body+"\n" {
+				t.Errorf("a pipe gets exit 4 and the envelope as it is: exit=%d stderr=%q", code, errOut)
+			}
+			_, errOut, code = run(t, f, args, runOpts{term: true})
+			if code != exitAuth || !strings.HasPrefix(errOut, "cowl: upgrade_required: "+message+"\n") {
+				t.Errorf("a terminal gets exit 4 and the message as it is: exit=%d stderr=%q", code, errOut)
+			}
 		}
 	})
 }
