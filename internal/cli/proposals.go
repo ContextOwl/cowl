@@ -55,11 +55,11 @@ func cmdProposalsList() *Command {
 				out := make([][]string, 0, len(rows))
 				for _, r := range rows {
 					out = append(out, []string{
-						strconv.FormatInt(r.ID, 10), r.ObjectType, r.statusLabel(), dash(r.Slug), dash(r.summaryOrTitle()),
+						strconv.FormatInt(r.ID, 10), r.ObjectType, r.statusLabel(), dash(r.Slug), dash(r.Title), dash(r.Summary),
 						yesNo(r.Stale), dash(r.Author), timeLabel(r.CreatedAt), dash(snippetText(r.Note)),
 					})
 				}
-				a.table([]string{"ID", "TYPE", "STATUS", "SLUG", "SUMMARY", "STALE", "AUTHOR", "CREATED", "NOTE"}, out)
+				a.table([]string{"ID", "TYPE", "STATUS", "SLUG", "TITLE", "SUMMARY", "STALE", "AUTHOR", "CREATED", "NOTE"}, out)
 				return nil
 			})
 		},
@@ -135,12 +135,6 @@ func (r proposalRow) statusLabel() string {
 		return "withdrawn"
 	}
 	return r.Status
-}
-
-// summaryOrTitle is the summary of the proposal. An older server sends no
-// summary, and then the title stands in.
-func (r proposalRow) summaryOrTitle() string {
-	return firstOf(r.Summary, r.Title)
 }
 
 // changedTarget names the target of a proposal kind for the stale line.

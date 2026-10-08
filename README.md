@@ -84,7 +84,9 @@ proposal 42 waits for review: https://contextowl.co/admin/proposals?ws=platform&
 
 In agent mode, cowl prints the REST body, which has `pendingReview` set to true. Give the review link to the person who approves changes, and do not run the command again. A later write of the same key updates the same proposal.
 
-These commands can wait for review and take `--note`: `articles update`, `articles place`, `landing set`, `changelog create`, `changelog update`, `changelog delete`, `openapi attach`, `openapi sync`, `openapi detach`, `openapi place` and `workspaces update`. cowl sends `--note` only when you set it. Unless the key is a publishing key, `cowl workspaces delete` fails with `review_required` and exits 4. `cowl workspaces create` with access mode public or `--listed` fails the same way.
+These commands can wait for review and take `--note`: `articles update`, `articles place`, `landing set`, `changelog create`, `changelog update`, `changelog delete`, `openapi attach`, `openapi sync`, `openapi detach`, `openapi place` and `workspaces update`. cowl sends `--note` only when you set it. A server without the review of agent changes rejects the note in the request body, so cowl then sends the write again without it.
+
+Unless the key is a publishing key, `cowl workspaces delete` fails with `review_required` and exits 4. `cowl workspaces create` with access mode public or `--listed` fails the same way. To make a new workspace public or listed, create it without these flags. Then pass the flags to `cowl workspaces update`, which files a proposal for an admin.
 
 `cowl whoami` shows how the changes of the key to live content apply: `none`, `review` or `direct`. An admin can approve a key as a publishing key in **Admin > Settings > API**. Its changes then apply at once.
 

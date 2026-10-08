@@ -198,8 +198,7 @@ func cmdChangelogCreate() *Command {
 			if opts.publishedAt != "" {
 				body["published_at"] = opts.publishedAt
 			}
-			noteBody(body, opts.note)
-			raw, httpStatus, err := a.requestStatus("POST", a.ws()+"/changelog", nil, body)
+			raw, httpStatus, err := a.requestNote("POST", a.ws()+"/changelog", body, opts.note)
 			if err != nil {
 				return err
 			}
@@ -251,8 +250,7 @@ func cmdChangelogUpdate() *Command {
 			if len(body) == 0 {
 				return usageError("nothing to update: pass at least one of --title, --file, --markdown, --tags, --status, --published-at")
 			}
-			noteBody(body, opts.note)
-			raw, httpStatus, err := a.requestStatus("PATCH", a.ws()+"/changelog/"+id, nil, body)
+			raw, httpStatus, err := a.requestNote("PATCH", a.ws()+"/changelog/"+id, body, opts.note)
 			if err != nil {
 				return err
 			}

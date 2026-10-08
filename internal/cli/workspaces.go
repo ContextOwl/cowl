@@ -138,8 +138,7 @@ func cmdWorkspacesUpdate() *Command {
 			if len(body) == 0 {
 				return usageError("nothing to update: pass at least one of --name, --color, --access-mode, --listed, --llms-txt")
 			}
-			noteBody(body, opts.note)
-			raw, httpStatus, err := a.requestStatus("PATCH", "/api/v1/workspaces/"+url.PathEscape(target), nil, body)
+			raw, httpStatus, err := a.requestNote("PATCH", "/api/v1/workspaces/"+url.PathEscape(target), body, opts.note)
 			if err != nil {
 				return err
 			}

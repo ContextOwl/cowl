@@ -298,8 +298,7 @@ func cmdArticlesUpdate() *Command {
 			if err := a.revisionFlags(body, opts.baseRevision, opts.allowShrink); err != nil {
 				return err
 			}
-			noteBody(body, opts.note)
-			raw, httpStatus, err := a.requestStatus("PATCH", a.ws()+"/articles/"+url.PathEscape(slug), nil, body)
+			raw, httpStatus, err := a.requestNote("PATCH", a.ws()+"/articles/"+url.PathEscape(slug), body, opts.note)
 			if err != nil {
 				return err
 			}
@@ -356,8 +355,7 @@ func cmdArticlesPlace() *Command {
 				}
 				body["position"] = position
 			}
-			noteBody(body, note)
-			raw, httpStatus, err := a.requestStatus("POST", a.ws()+"/articles/"+url.PathEscape(slug)+"/placement", nil, body)
+			raw, httpStatus, err := a.requestNote("POST", a.ws()+"/articles/"+url.PathEscape(slug)+"/placement", body, note)
 			if err != nil {
 				return err
 			}

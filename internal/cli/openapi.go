@@ -92,8 +92,7 @@ func cmdOpenAPIAttach() *Command {
 				}
 				body["spec"] = string(data)
 			}
-			noteBody(body, note)
-			raw, httpStatus, err := a.requestStatus("PUT", a.ws()+"/openapi", nil, body)
+			raw, httpStatus, err := a.requestNote("PUT", a.ws()+"/openapi", body, note)
 			if err != nil {
 				return err
 			}
@@ -249,8 +248,7 @@ func cmdOpenAPIPlace() *Command {
 				}
 				body["position"] = position
 			}
-			noteBody(body, note)
-			raw, httpStatus, err := a.requestStatus("POST", a.ws()+"/openapi/pages/"+url.PathEscape(slug)+"/placement", nil, body)
+			raw, httpStatus, err := a.requestNote("POST", a.ws()+"/openapi/pages/"+url.PathEscape(slug)+"/placement", body, note)
 			if err != nil {
 				return err
 			}

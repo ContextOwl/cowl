@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -14,12 +16,33 @@ import (
 // noteHelp is the help of --note on each write that the org can review.
 const noteHelp = "note for the reviewer when the org reviews agent changes: what the change does and why. A direct write ignores it"
 
-// noteBody adds --note to the body of a write. cowl sends it only when the
-// user sets it, because an older server rejects an unknown body field.
-func noteBody(body map[string]any, note string) {
-	if note = strings.TrimSpace(note); note != "" {
-		body["note"] = note
+// requestNote is requestStatus for a write that sends --note in its body.
+// cowl sends the note only when the user sets it. A server without the
+// review of agent changes rejects the unknown body field before it changes
+// anything, and it has no reviewer to read the note. cowl then sends the
+// write again once, without the note.
+func (a *App) requestNote(method, path string, body map[string]any, note string) (json.RawMessage, int, error) {
+	if note = strings.TrimSpace(note); note == "" {
+		return a.requestStatus(method, path, nil, body)
 	}
+	body["note"] = note
+	raw, httpStatus, err := a.requestStatus(method, path, nil, body)
+	if !noteRejected(err) {
+		return raw, httpStatus, err
+	}
+	delete(body, "note")
+	if a.ErrTTY {
+		fmt.Fprintln(a.Err, "note: this server does not take --note, so cowl sent the write without it.")
+	}
+	return a.requestStatus(method, path, nil, body)
+}
+
+// noteRejected reports whether err is the answer of a server that does not
+// know the note field of a write.
+func noteRejected(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest &&
+		apiErr.Code == "invalid_body" && strings.Contains(apiErr.Message, `unknown field "note"`)
 }
 
 // noteQuery is the query of a write that takes --note as a query parameter,

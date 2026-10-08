@@ -185,23 +185,34 @@ func apiErrorHints(e *APIError) []string {
 		hints = append(hints, "Run 'cowl auth login', or set CONTEXTOWL_PAT.")
 	case e.Code == "stale_revision":
 		hints = append(hints, "Read the article again, then do the change again on the current revision.")
+	case e.Code == "large_removal" && proposalID > 0:
+		hints = append(hints, fmt.Sprintf("The new text replaces the text of proposal %d, which waits for review. "+
+			"Run 'cowl proposals get %d' to read that text. To remove this much text, pass --allow-shrink.", proposalID, proposalID))
 	case e.Code == "large_removal":
 		hints = append(hints, "To remove this much text, pass --allow-shrink.")
 	case e.Code == "slug_taken":
 		hints = append(hints, "Pass a different --slug, or leave out --slug to get a free slug.")
 	case e.Code == "edit_not_found" && proposalID > 0:
-		hints = append(hints, fmt.Sprintf("The edits apply to proposal %d, which waits for review. "+
-			"Run 'cowl proposals get %d', then copy the old text of %s exactly from its Markdown.", proposalID, proposalID, edit))
+		hints = append(hints, proposalEditsHint(proposalID)+" Then copy the old text of "+edit+" exactly from that Markdown.")
 	case e.Code == "edit_not_found":
 		hints = append(hints, "Read the article again and copy the old text of "+edit+" exactly.")
+	case e.Code == "edit_ambiguous" && proposalID > 0:
+		hints = append(hints, proposalEditsHint(proposalID)+" Then add text around the old text of "+edit+" so that it occurs only once.")
 	case e.Code == "edit_ambiguous":
 		hints = append(hints, "Add text around the old text of "+edit+" so that it occurs only once.")
+	case e.Code == "review_required" && strings.Contains(e.Message, "create a public or listed workspace"):
+		hints = append(hints, "Create the workspace without --access-mode public and --listed. "+
+			"Then pass those flags to 'cowl workspaces update WORKSPACE', which files a proposal for an admin.")
 	case e.Code == "review_required":
 		hints = append(hints, "Ask an admin to make this change. An admin can also approve this key as a publishing key in Admin > Settings > API.")
-	case e.Code == "invalid_body" && strings.Contains(e.Message, `unknown field "note"`):
-		hints = append(hints, "This server does not take --note. Run the command again without --note.")
 	}
 	return hints
+}
+
+// proposalEditsHint starts the hint of an edits error when the edits apply
+// to the pending proposal id of the key instead of the live article.
+func proposalEditsHint(id int64) string {
+	return fmt.Sprintf("The edits apply to proposal %d, which waits for review. Run 'cowl proposals get %d' to read its Markdown.", id, id)
 }
 
 // stringList reads a JSON array of strings, or of objects with a key or a
