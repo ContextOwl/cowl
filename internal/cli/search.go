@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 )
 
@@ -22,6 +23,9 @@ type searchHit struct {
 	Snippet string   `json:"snippet"`
 	URL     string   `json:"url"`
 	Score   *float64 `json:"score"`
+	// Learned is true when people and agents opened the article after
+	// similar searches, so it ranks higher. The API leaves it out when false.
+	Learned bool `json:"learned"`
 }
 
 type slugSuggestion struct {
@@ -89,6 +93,10 @@ func cmdSearch() *Command {
 				if resp.Semantic {
 					headers = append(headers, "SCORE")
 				}
+				learned := slices.ContainsFunc(resp.Results, func(h searchHit) bool { return h.Learned })
+				if learned {
+					headers = append(headers, "LEARNED")
+				}
 				rows := make([][]string, 0, len(resp.Results))
 				for _, r := range resp.Results {
 					row := []string{r.ref(), r.Type, dash(r.Status), r.Title, dash(snippetText(r.Snippet)), dash(r.URL)}
@@ -98,6 +106,9 @@ func cmdSearch() *Command {
 							score = strconv.FormatFloat(*r.Score, 'f', 3, 64)
 						}
 						row = append(row, score)
+					}
+					if learned {
+						row = append(row, yesNo(r.Learned))
 					}
 					rows = append(rows, row)
 				}
