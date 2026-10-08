@@ -305,10 +305,10 @@ func TestCommands(t *testing.T) {
 		},
 		{
 			name: "articles place with position", args: []string{"articles", "place", "intro", "--section", "guides", "--position", "2"},
-			response:   `{"slug":"intro","section":"guides"}`,
+			response:   `{"slug":"intro","section":"guides","visibility":"public","visibilityChanged":false}`,
 			wantMethod: "POST", wantPath: "/api/v1/workspaces/-/articles/intro/placement",
 			wantBody: map[string]any{"section": "guides", "position": float64(2)},
-			wantTerm: []string{"placed article intro in guides at position 2"},
+			wantTerm: []string{"placed article intro in guides at position 2 (visibility public)"},
 		},
 		{
 			name: "sections list", args: []string{"sections", "list"},
@@ -474,10 +474,10 @@ func TestCommands(t *testing.T) {
 		},
 		{
 			name: "openapi place with position", args: []string{"openapi", "place", "get-users", "--section", "api", "--position", "0"},
-			response:   `{"slug":"get-users"}`,
+			response:   `{"slug":"get-users","title":"List users","method":"GET","source":"openapi","nav":"api","visibility":"public"}`,
 			wantMethod: "POST", wantPath: "/api/v1/workspaces/-/openapi/pages/get-users/placement",
 			wantBody: map[string]any{"section": "api", "position": float64(0)},
-			wantTerm: []string{"placed page get-users in api at position 0"},
+			wantTerm: []string{"placed page get-users in api at position 0 (visibility public)"},
 		},
 		{
 			name: "openapi detach-page", args: []string{"openapi", "detach-page", "get-users"},
@@ -702,6 +702,215 @@ func TestUsageErrors(t *testing.T) {
 				t.Errorf("request should not have been sent, got %v", reqs)
 			}
 		})
+	}
+}
+
+// keptNote is the kept-access note of cowl articles place. flags are the
+// global flags at the end of both commands.
+func keptNote(slug, section, flags string) string {
+	return "note: " + slug + " kept the access of " + section + " that it left, so the move did not open it to more readers. To open it, run:\n" +
+		"  cowl articles update " + slug + " --visibility public" + flags + "\n" +
+		"If the update fails with openapi_generated, detach the generated page first. Later syncs then skip the page. To detach it, run:\n" +
+		"  cowl openapi detach-page " + slug + flags + "\n"
+}
+
+// TestPlaceReceipts: the place receipts print the visibility that the server
+// returns. When an article kept the access of the section that it left, a note
+// says how to open it. A server that sends no visibility gets the receipt
+// without it. In a pipe and with --json, cowl prints the body and no note.
+func TestPlaceReceipts(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "config.json")
+	env := map[string]string{"CONTEXTOWL_CONFIG": cfg}
+	tests := []struct {
+		name     string
+		args     []string
+		response string
+		wantOut  string
+		wantErr  string
+	}{
+		{
+			name:     "article keeps its own visibility",
+			args:     []string{"articles", "place", "intro", "--section", "guides", "--position", "2"},
+			response: `{"slug":"intro","section":"guides","visibility":"public","visibilityChanged":false}`,
+			wantOut:  "placed article intro in guides at position 2 (visibility public)\n",
+		},
+		{
+			name:     "article keeps the access of the section that it left",
+			args:     []string{"articles", "place", "partner-pricing", "--section", "none", "-w", "partners"},
+			response: `{"slug":"partner-pricing","section":"none","visibility":"private","visibilityChanged":true}`,
+			wantOut:  "placed article partner-pricing in none (visibility private)\n",
+			wantErr:  keptNote("partner-pricing", "the private section", " -w partners --config "+shellQuote(cfg)),
+		},
+		{
+			name:     "article on a server without the visibility fields",
+			args:     []string{"articles", "place", "intro", "--section", "guides"},
+			response: `{"slug":"intro","section":"guides"}`,
+			wantOut:  "placed article intro in guides\n",
+		},
+		{
+			name: "openapi page",
+			args: []string{"openapi", "place", "get-users", "--section", "none"},
+			response: `{"slug":"get-users","title":"List users","section":"","kicker":"","status":"STABLE","author":"","method":"GET","source":"openapi",` +
+				`"markdown":"# List users\n","nav":"none","navLabel":"List users","level":0,"isFolder":false,"sort":0,"views":0,"visibility":"private",` +
+				`"locked":false,"encrypted":false,"archived":false,"updatedAt":"2026-10-07T10:00:00Z","updatedLabel":"","createdAt":"2026-10-01T10:00:00Z"}`,
+			wantOut: "placed page get-users in none (visibility private)\n",
+		},
+		{
+			name:     "openapi page without a visibility",
+			args:     []string{"openapi", "place", "get-users", "--section", "api", "--position", "0"},
+			response: `{"slug":"get-users"}`,
+			wantOut:  "placed page get-users in api at position 0\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &fakeAPI{body: tt.response}
+			out, errOut, code := run(t, f, tt.args, runOpts{term: true, env: env})
+			if code != 0 || out != tt.wantOut || errOut != tt.wantErr {
+				t.Errorf("terminal: exit %d\nstdout %q\nwant   %q\nstderr %q\nwant   %q", code, out, tt.wantOut, errOut, tt.wantErr)
+			}
+			for _, mode := range []struct {
+				name string
+				args []string
+				opts runOpts
+			}{
+				{"pipe", tt.args, runOpts{env: env}},
+				{"--json", append(append([]string(nil), tt.args...), "--json"), runOpts{term: true, env: env}},
+			} {
+				out, errOut, code := run(t, f, mode.args, mode.opts)
+				if want := compactJSON(t, tt.response) + "\n"; code != 0 || out != want || errOut != "" {
+					t.Errorf("%s: exit %d, stdout %q, stderr %q, want the body %q and no note", mode.name, code, out, errOut, want)
+				}
+			}
+		})
+	}
+}
+
+// TestKeptAccessNote: the commands of the note end with the resolved
+// workspace, and with --config when a flag or the environment named the
+// config file.
+func TestKeptAccessNote(t *testing.T) {
+	tests := []struct {
+		name       string
+		visibility string
+		workspace  string
+		config     string
+		env        map[string]string
+		want       string
+	}{
+		{name: "internal section", visibility: "internal", workspace: "partners",
+			want: keptNote("intro", "the internal section", " -w partners")},
+		{name: "no visibility from the server", workspace: "-",
+			want: keptNote("intro", "the section", " -w -")},
+		{name: "config flag with a space", visibility: "private", workspace: "partners", config: "/home/me/cowl configs/org b.json",
+			want: keptNote("intro", "the private section", " -w partners --config '/home/me/cowl configs/org b.json'")},
+		{name: "config from the environment", visibility: "private", workspace: "docs", env: map[string]string{"COWL_CONFIG": "/srv/cowl.json"},
+			want: keptNote("intro", "the private section", " -w docs --config /srv/cowl.json")},
+		{name: "config flag over the environment", visibility: "private", workspace: "docs", config: "/srv/flag.json",
+			env:  map[string]string{"CONTEXTOWL_CONFIG": "/srv/env.json"},
+			want: keptNote("intro", "the private section", " -w docs --config /srv/flag.json")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &App{IO: IO{Env: func(k string) string { return tt.env[k] }}, g: globals{config: tt.config}, workspace: tt.workspace}
+			if got := a.keptAccessNote("intro", tt.visibility); got != tt.want {
+				t.Errorf("keptAccessNote:\ngot  %q\nwant %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestKeptAccessNoteCommands pastes the commands of the note into a shell that
+// names another workspace and no key. The commands still reach the workspace
+// of the place command with the key of its config file.
+func TestKeptAccessNoteCommands(t *testing.T) {
+	f := &fakeAPI{fn: func(r *http.Request) (int, string) {
+		if strings.HasSuffix(r.URL.Path, "/placement") {
+			return http.StatusOK, `{"slug":"partner-pricing","section":"none","visibility":"private","visibilityChanged":true}`
+		}
+		return http.StatusOK, `{"slug":"partner-pricing"}`
+	}}
+	base := serve(t, f)
+	cfg := filepath.Join(t.TempDir(), "org b", "config.json")
+	if err := saveConfig(cfg, Config{BaseURL: base, Token: "cowl_pat_orgb0token", Workspace: "docs"}); err != nil {
+		t.Fatal(err)
+	}
+	shell := map[string]string{"CONTEXTOWL_PAT": "", "CONTEXTOWL_WORKSPACE": "docs"}
+	tests := []struct {
+		name   string
+		flags  []string
+		inline map[string]string
+		want   string
+	}{
+		{name: "-w over the environment", flags: []string{"-w", "partners", "--config", cfg}, want: "partners"},
+		{name: "-w - over the config file", flags: []string{"-w", "-", "--config", cfg}, want: "-"},
+		{name: "inline environment", inline: map[string]string{"CONTEXTOWL_WORKSPACE": "partners", "CONTEXTOWL_CONFIG": cfg}, want: "partners"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := map[string]string{}
+			for _, m := range []map[string]string{shell, tt.inline} {
+				for k, v := range m {
+					env[k] = v
+				}
+			}
+			start := len(f.requests())
+			args := append([]string{"articles", "place", "partner-pricing", "--section", "none"}, tt.flags...)
+			_, note, code := runAt(t, base, args, runOpts{term: true, env: env})
+			if code != 0 {
+				t.Fatalf("place: exit %d, stderr %q", code, note)
+			}
+			pasted := 0
+			for _, line := range strings.Split(note, "\n") {
+				cmd, ok := strings.CutPrefix(line, "  cowl ")
+				if !ok {
+					continue
+				}
+				pasted++
+				if _, errOut, code := runAt(t, base, shellWords(cmd), runOpts{term: true, env: shell}); code != 0 {
+					t.Fatalf("pasted %q: exit %d, stderr %q", line, code, errOut)
+				}
+			}
+			ws := "/api/v1/workspaces/" + tt.want
+			want := []string{
+				"POST " + ws + "/articles/partner-pricing/placement",
+				"PATCH " + ws + "/articles/partner-pricing",
+				"DELETE " + ws + "/openapi/pages/partner-pricing",
+			}
+			reqs := f.requests()[start:]
+			var got []string
+			for _, r := range reqs {
+				got = append(got, r.Method+" "+r.Path)
+				if r.Auth != "Bearer cowl_pat_orgb0token" {
+					t.Errorf("%s %s sent the key %q, want the key of the config file", r.Method, r.Path, r.Auth)
+				}
+			}
+			if pasted != 2 || strings.Join(got, "\n") != strings.Join(want, "\n") {
+				t.Fatalf("pasted %d commands from the note %q\nrequests %q\nwant     %q", pasted, note, got, want)
+			}
+			if body := decodeBody(t, reqs[1].Body); len(body) != 1 || body["visibility"] != "public" {
+				t.Errorf("update body = %v, want only visibility public", body)
+			}
+		})
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	for in, want := range map[string]string{
+		"partners":                     "partners",
+		"-":                            "-",
+		"/home/me/.config/c.json":      "/home/me/.config/c.json",
+		"/home/me/cowl configs/c.json": "'/home/me/cowl configs/c.json'",
+		`C:\Users\me\c.json`:           `'C:\Users\me\c.json'`,
+		"it's":                         `'it'\''s'`,
+		"$HOME/c.json":                 "'$HOME/c.json'",
+		"~/c.json":                     "'~/c.json'",
+		"=c.json":                      "'=c.json'",
+		"":                             "''",
+	} {
+		if got := shellQuote(in); got != want {
+			t.Errorf("shellQuote(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

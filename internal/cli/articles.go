@@ -362,14 +362,49 @@ func cmdArticlesPlace() *Command {
 			if err != nil {
 				return err
 			}
-			return a.emit(raw, func() error {
-				where := ""
-				if a.flagWasSet("position") {
-					where = " at position " + strconv.Itoa(position)
+			return emitAs(a, raw, func(res placement) error {
+				a.printPlaced("article", slug, section, position, res.Visibility)
+				if res.VisibilityChanged {
+					fmt.Fprint(a.Err, a.keptAccessNote(slug, res.Visibility))
 				}
-				fmt.Fprintf(a.Out, "placed article %s in %s%s\n", slug, section, where)
 				return nil
 			})
 		},
 	}
+}
+
+// placement is the response of placeArticle. An older server sends only slug
+// and section, so the receipt prints the visibility only when it is present.
+type placement struct {
+	Visibility        string `json:"visibility"`
+	VisibilityChanged bool   `json:"visibilityChanged"`
+}
+
+// printPlaced prints the receipt of articles place and openapi place.
+// visibility is empty when the server does not send it.
+func (a *App) printPlaced(kind, slug, section string, position int, visibility string) {
+	line := "placed " + kind + " " + slug + " in " + section
+	if a.flagWasSet("position") {
+		line += " at position " + strconv.Itoa(position)
+	}
+	if visibility != "" {
+		line += " (visibility " + visibility + ")"
+	}
+	fmt.Fprintln(a.Out, line)
+}
+
+// keptAccessNote explains a placement with visibilityChanged: the published
+// article left a stricter section and kept its access as its own visibility.
+// It gives the command that opens the article. updateArticle refuses a
+// generated OpenAPI page, and the response does not say whether the article
+// is one, so the note also gives the detach command.
+func (a *App) keptAccessNote(slug, visibility string) string {
+	section := "the section"
+	if visibility != "" {
+		section = "the " + visibility + " section"
+	}
+	return "note: " + slug + " kept the access of " + section + " that it left, so the move did not open it to more readers. To open it, run:\n" +
+		"  " + a.suggest("articles", "update", slug, "--visibility", "public") + "\n" +
+		"If the update fails with openapi_generated, detach the generated page first. Later syncs then skip the page. To detach it, run:\n" +
+		"  " + a.suggest("openapi", "detach-page", slug) + "\n"
 }
