@@ -110,6 +110,9 @@ func (a *App) doWithContentType(method, path string, query url.Values, payload [
 		req.Header.Set("Authorization", "Bearer "+a.token)
 	}
 	req.Header.Set("User-Agent", fmt.Sprintf("cowl/%s (%s/%s)", version(), runtime.GOOS, runtime.GOARCH))
+	if name, _, _ := a.agent(); name != "" {
+		req.Header.Set(agentHeader, name)
+	}
 	resp, err := a.http.Do(req)
 	if err != nil {
 		return nil, 0, networkError(a.baseURL, err)

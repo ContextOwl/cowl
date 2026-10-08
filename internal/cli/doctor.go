@@ -18,7 +18,9 @@ import (
 var doctorTimeout = 5 * time.Second
 
 // doctorReport is safe to paste into a public issue: it never holds the key,
-// its prefix, a name, a workspace id, the base URL or the config path.
+// its prefix, the name of the key, the org or a workspace, a workspace id,
+// the base URL or the config path. Agent is the agent name that cowl sends in
+// the ContextOwl-Agent header, or none.
 type doctorReport struct {
 	Version     string        `json:"version"`
 	OS          string        `json:"os"`
@@ -26,6 +28,8 @@ type doctorReport struct {
 	Config      string        `json:"config"`
 	BaseURL     string        `json:"baseUrl"`
 	Token       string        `json:"token"`
+	Agent       string        `json:"agent"`
+	AgentFrom   string        `json:"agentFrom,omitempty"`
 	API         doctorAPI     `json:"api"`
 	Role        string        `json:"role,omitempty"`
 	Plan        string        `json:"plan,omitempty"`
@@ -90,6 +94,7 @@ func (a *App) diagnose() doctorReport {
 	if a.token == "" {
 		rep.note("No agent key. Run 'cowl auth login', or set CONTEXTOWL_PAT.")
 	}
+	rep.checkAgent(a)
 	if baseErr != nil || a.token == "" {
 		return rep
 	}
@@ -231,6 +236,7 @@ func (r doctorReport) print(a *App) {
 		{"config", r.Config},
 		{"base url", r.BaseURL},
 		{"token", r.Token},
+		{"agent", r.agentLabel()},
 		{"api", api},
 	}
 	if r.API.Result == "ok" {

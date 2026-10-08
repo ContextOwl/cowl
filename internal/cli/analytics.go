@@ -4,12 +4,14 @@ import (
 	"flag"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 )
 
 type reportTotals struct {
+	notFoundTotals
 	Reads           int `json:"reads"`
 	Readers         int `json:"readers"`
 	AgentReads      int `json:"agentReads"`
@@ -40,9 +42,8 @@ type analyticsReport struct {
 		} `json:"assistants"`
 	} `json:"aiReferrals"`
 	NotFound []struct {
-		Path   string `json:"path"`
-		People int    `json:"people"`
-		Agents int    `json:"agents"`
+		Path string `json:"path"`
+		whoMissed
 	} `json:"notFound"`
 }
 
@@ -77,11 +78,10 @@ type contentInsights struct {
 		UpdatedAt   time.Time `json:"updatedAt"`
 	} `json:"pages"`
 	Missing []struct {
-		Workspace  string      `json:"workspace"`
-		Path       string      `json:"path"`
-		Slug       string      `json:"slug"`
-		People     int         `json:"people"`
-		Agents     int         `json:"agents"`
+		Workspace string `json:"workspace"`
+		Path      string `json:"path"`
+		Slug      string `json:"slug"`
+		whoMissed
 		Suggestion *articleRef `json:"suggestion"`
 	} `json:"missing"`
 }
@@ -150,12 +150,17 @@ func cmdAnalyticsReport() *Command {
 					a.table([]string{"QUERY", "SEARCHES", "NO RESULTS"}, rows)
 				}
 				if len(r.NotFound) > 0 {
-					fmt.Fprintln(a.Out, "\nnot found:")
+					fmt.Fprintf(a.Out, "\nnot found%s:\n", t.notFoundLabel())
+					missed := make([]whoMissed, 0, len(r.NotFound))
+					for _, p := range r.NotFound {
+						missed = append(missed, p.whoMissed)
+					}
+					split := splitMissed(missed)
 					rows := make([][]string, 0, len(r.NotFound))
 					for _, p := range r.NotFound {
-						rows = append(rows, []string{p.Path, strconv.Itoa(p.People), strconv.Itoa(p.Agents)})
+						rows = append(rows, append([]string{p.Path}, p.cells(split)...))
 					}
-					a.table([]string{"PATH", "PEOPLE", "AGENTS"}, rows)
+					a.table(append([]string{"PATH"}, missedHeaders(split)...), rows)
 				}
 				return nil
 			})
@@ -224,15 +229,28 @@ func cmdAnalyticsNext() *Command {
 				}
 				if len(in.Missing) > 0 {
 					fmt.Fprintln(a.Out, "\nfix:")
+					missed := make([]whoMissed, 0, len(in.Missing))
+					for _, m := range in.Missing {
+						missed = append(missed, m.whoMissed)
+					}
+					split := splitMissed(missed)
+					headers := []string{"PATH", "ASKED", "REDIRECT TO"}
+					if split {
+						headers = slices.Concat([]string{"PATH"}, missedHeaders(true), []string{"REDIRECT TO"})
+					}
 					rows := make([][]string, 0, len(in.Missing))
 					for _, m := range in.Missing {
 						target := "-"
 						if m.Suggestion != nil {
 							target = m.Suggestion.Slug
 						}
-						rows = append(rows, []string{m.Path, strconv.Itoa(m.People + m.Agents), target})
+						asked := []string{strconv.Itoa(m.People + m.Agents)}
+						if split {
+							asked = m.cells(true)
+						}
+						rows = append(rows, slices.Concat([]string{m.Path}, asked, []string{target}))
 					}
-					a.table([]string{"PATH", "ASKED", "REDIRECT TO"}, rows)
+					a.table(headers, rows)
 				}
 				if days > in.TextDays && len(in.Topics) > 0 {
 					fmt.Fprintf(a.Err, "note: question text is kept %d days, so older questions are not listed\n", in.TextDays)

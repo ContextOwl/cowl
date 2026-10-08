@@ -17,8 +17,9 @@ var readOnlySkillTools = []string{
 	"Bash(cowl search *)", "Bash(cowl articles get *)", "Bash(cowl articles list *)", "Bash(cowl articles list)",
 	"Bash(cowl changelog list *)", "Bash(cowl changelog list)", "Bash(cowl changelog get *)",
 	"Bash(cowl proposals list *)", "Bash(cowl proposals list)", "Bash(cowl proposals get *)",
-	"Bash(cowl whoami)", "Bash(cowl doctor)", "Bash(cowl insights)",
+	"Bash(cowl whoami)", "Bash(cowl doctor)", "Bash(cowl insights)", "Bash(cowl insights *)",
 	"Bash(cowl analytics report)", "Bash(cowl analytics report *)", "Bash(cowl analytics next)", "Bash(cowl analytics next *)",
+	"Bash(cowl analytics questions)", "Bash(cowl analytics questions *)",
 }
 
 type skillFile struct {
@@ -271,6 +272,51 @@ func flagExists(name string) bool {
 		}
 	}
 	return false
+}
+
+// The skill passes --question with each search only after the ContextOwl
+// release that records questions is live. Issue #28 adds that rule.
+func TestSkillPassesNoQuestionYet(t *testing.T) {
+	if strings.Contains(readDoc(t, skillPath), "--question") {
+		t.Error("SKILL.md must not pass --question before the ContextOwl release that records questions is live. See issue #28.")
+	}
+}
+
+// A skill from the default branch can name a command or a flag that an older
+// cowl does not have. Such a cowl answers with a usage error and exit 2, so
+// the skill asks for the latest release, and its exit 2 row tells the agent
+// what to do.
+func TestSkillCoversAnOlderCowl(t *testing.T) {
+	sf := parseSkill(t, readDoc(t, skillPath))
+	if compat := sf.scalars["compatibility"]; !strings.Contains(compat, "the latest release of the cowl CLI") {
+		t.Errorf("compatibility must ask for the latest release of the cowl CLI: %q", compat)
+	}
+	const next = "If cowl does not know a command or a flag that this skill names, continue without it and tell the user to update cowl."
+	if row := lineWith(sf.body, "| 2 |"); !strings.Contains(row, next) {
+		t.Errorf("the exit 2 row must say %q: %q", next, row)
+	}
+	for _, args := range [][]string{{"analytics", "later"}, {"insights", "--later"}} {
+		_, errOut, code := run(t, &fakeAPI{}, args, runOpts{})
+		if code != 2 || !strings.Contains(errOut, `"code":"usage"`) {
+			t.Errorf("cowl %s: exit %d, %s, want a usage error with exit 2", strings.Join(args, " "), code, errOut)
+		}
+	}
+}
+
+// cowl analytics questions lists the questions of one group, AI agents
+// unless --actor names another group. The skill names that default and the
+// flag for each other group.
+func TestSkillNamesTheDefaultQuestionActor(t *testing.T) {
+	actor := cmdAnalyticsQuestions().flagSet(&globals{}).Lookup("actor")
+	para := paragraphWith(readDoc(t, skillPath), "`cowl analytics questions --unanswered`")
+	if want := "lists the questions of " + questionActorLabel(actor.DefValue); !strings.Contains(para, want) {
+		t.Errorf("SKILL.md must say that cowl analytics questions %s:\n%s", want, para)
+	}
+	for _, g := range questionActors {
+		if g.value != actor.DefValue && !strings.Contains(para, "`--actor "+g.value+"`") {
+			t.Errorf("SKILL.md must name `--actor %s` for the questions of %s:\n%s", g.value, g.label, para)
+		}
+	}
 }
 
 func TestSkillCheckerCatchesMistakes(t *testing.T) {
