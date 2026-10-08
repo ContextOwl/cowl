@@ -274,11 +274,21 @@ func flagExists(name string) bool {
 	return false
 }
 
-// The skill passes --question with each search only after the ContextOwl
-// release that records questions is live. Issue #28 adds that rule.
-func TestSkillPassesNoQuestionYet(t *testing.T) {
-	if strings.Contains(readDoc(t, skillPath), "--question") {
-		t.Error("SKILL.md must not pass --question before the ContextOwl release that records questions is live. See issue #28.")
+// The skill passes the question of the user with each search. A cowl older
+// than --question exits 2 on each such search, so the rule says what to do.
+func TestSkillPassesTheQuestion(t *testing.T) {
+	sf := parseSkill(t, readDoc(t, skillPath))
+	rule := lineWith(sf.body, "- Search before you answer")
+	for _, want := range []string{
+		"Pass the user's question with `--question` on each search, without names, email addresses or secrets.",
+		"If cowl says that `--question` is not defined, search without it and tell the user to update cowl.",
+	} {
+		if !strings.Contains(rule, want) {
+			t.Errorf("the search rule must say %q: %q", want, rule)
+		}
+	}
+	if !strings.Contains(sf.body, "\ncowl search \"rotate an agent key\" --question \"") {
+		t.Error("the first search example must pass --question")
 	}
 }
 

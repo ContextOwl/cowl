@@ -31,7 +31,7 @@ allowed-tools:
 
 ## Rules
 
-- Search before you answer from memory about the user's own product, API, CLI, configuration or processes.
+- Search before you answer from memory about the user's own product, API, CLI, configuration or processes. Pass the user's question with `--question` on each search, without names, email addresses or secrets. If cowl says that `--question` is not defined, search without it and tell the user to update cowl.
 - Read only the sections you need. Cite the `url` of each article you use.
 - STABLE and BETA articles are approved. Say so when you use a DEPRECATED article.
 - DRAFT and IN REVIEW articles are not approved. Never present them as approved. Add `--published-only` to leave them out.
@@ -44,7 +44,7 @@ allowed-tools:
 ## Find
 
 ```bash
-cowl search "rotate an agent key"                # full-text search, 10 hits
+cowl search "rotate an agent key" --question "How do I rotate my key without downtime?"   # full-text search, 10 hits
 cowl search "keys expire" --semantic --limit 5   # when you do not know the words the docs use
 cowl search "sso setup" --published-only
 cowl articles list --updated-since 7d            # what changed, newest first
