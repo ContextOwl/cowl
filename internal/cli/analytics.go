@@ -4,12 +4,14 @@ import (
 	"flag"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 )
 
 type reportTotals struct {
+	notFoundTotals
 	Reads           int `json:"reads"`
 	Readers         int `json:"readers"`
 	AgentReads      int `json:"agentReads"`
@@ -18,6 +20,10 @@ type reportTotals struct {
 	Searches        int `json:"searches"`
 	SearchNoResults int `json:"searchNoResults"`
 	NotFound        int `json:"notFound"`
+
+	// AICrawlerHits is nil when the server does not send it, so the report
+	// of an older server prints as it did.
+	AICrawlerHits *int `json:"aiCrawlerHits"`
 }
 
 type analyticsReport struct {
@@ -40,10 +46,11 @@ type analyticsReport struct {
 		} `json:"assistants"`
 	} `json:"aiReferrals"`
 	NotFound []struct {
-		Path   string `json:"path"`
-		People int    `json:"people"`
-		Agents int    `json:"agents"`
+		Path string `json:"path"`
+		whoMissed
 	} `json:"notFound"`
+	Previous *reportTotals `json:"previous"`
+	Growth   *reportGrowth `json:"growth"`
 }
 
 type articleRef struct {
@@ -77,13 +84,13 @@ type contentInsights struct {
 		UpdatedAt   time.Time `json:"updatedAt"`
 	} `json:"pages"`
 	Missing []struct {
-		Workspace  string      `json:"workspace"`
-		Path       string      `json:"path"`
-		Slug       string      `json:"slug"`
-		People     int         `json:"people"`
-		Agents     int         `json:"agents"`
+		Workspace string `json:"workspace"`
+		Path      string `json:"path"`
+		Slug      string `json:"slug"`
+		whoMissed
 		Suggestion *articleRef `json:"suggestion"`
 	} `json:"missing"`
+	Rising *risingTopics `json:"rising"`
 }
 
 // daysFlag registers --days with the range of an analytics operation.
@@ -102,7 +109,7 @@ func cmdAnalyticsReport() *Command {
 	var days int
 	return &Command{
 		Group: "analytics", Name: "report", OpIDs: []string{"getAnalyticsReport"},
-		Summary: "Show how people and agents used a workspace: reads, searches, AI assistants, and pages not found",
+		Summary: "Show how people and agents used a workspace: reads, what is rising, searches, AI assistants, and pages not found",
 		Usage:   "cowl analytics report [--days N]",
 		Flags:   func(fs *flag.FlagSet) { daysFlag(fs, &days, 731) },
 		Run: func(a *App, args []string) error {
@@ -121,10 +128,12 @@ func cmdAnalyticsReport() *Command {
 				t := r.Totals
 				fmt.Fprintf(a.Out, "%s to %s: %s by people (%s), %s by AI agents, %s.\n",
 					r.From, r.To, count(t.Reads, "read", "reads"), count(t.Readers, "reader", "readers"),
-					count(t.AgentReads, "read", "reads"), count(t.CrawlerHits, "crawler visit", "crawler visits"))
+					count(t.AgentReads, "read", "reads"), crawlerVisits(t))
 				fmt.Fprintf(a.Out, "%s by people, %d found nothing. %s by agents. %s not found.\n",
 					count(t.Searches, "search", "searches"), t.SearchNoResults, count(t.AgentSearches, "search", "searches"),
 					count(t.NotFound, "page", "pages"))
+				printComparison(a, r.Days, t, r.Previous)
+				printReportGrowth(a, r.Days, r.Growth)
 				if len(r.AIReferrals.Assistants) > 0 {
 					fmt.Fprintln(a.Out, "\nfrom AI assistants:")
 					rows := make([][]string, 0, len(r.AIReferrals.Assistants))
@@ -150,12 +159,17 @@ func cmdAnalyticsReport() *Command {
 					a.table([]string{"QUERY", "SEARCHES", "NO RESULTS"}, rows)
 				}
 				if len(r.NotFound) > 0 {
-					fmt.Fprintln(a.Out, "\nnot found:")
+					fmt.Fprintf(a.Out, "\nnot found%s:\n", t.notFoundLabel())
+					missed := make([]whoMissed, 0, len(r.NotFound))
+					for _, p := range r.NotFound {
+						missed = append(missed, p.whoMissed)
+					}
+					split := splitMissed(missed)
 					rows := make([][]string, 0, len(r.NotFound))
 					for _, p := range r.NotFound {
-						rows = append(rows, []string{p.Path, strconv.Itoa(p.People), strconv.Itoa(p.Agents)})
+						rows = append(rows, append([]string{p.Path}, p.cells(split)...))
 					}
-					a.table([]string{"PATH", "PEOPLE", "AGENTS"}, rows)
+					a.table(append([]string{"PATH"}, missedHeaders(split)...), rows)
 				}
 				return nil
 			})
@@ -167,7 +181,7 @@ func cmdAnalyticsNext() *Command {
 	var days int
 	return &Command{
 		Group: "analytics", Name: "next", OpIDs: []string{"getContentInsights"},
-		Summary: "List the next steps for the docs: questions to answer, pages to update, missing pages to fix",
+		Summary: "List the next steps for the docs: questions to answer, pages to update, missing pages to fix, and rising topics",
 		Usage:   "cowl analytics next [--days N]",
 		Flags:   func(fs *flag.FlagSet) { daysFlag(fs, &days, 90) },
 		Run: func(a *App, args []string) error {
@@ -183,8 +197,9 @@ func cmdAnalyticsNext() *Command {
 				return err
 			}
 			return emitAs(a, raw, func(in contentInsights) error {
-				if len(in.Topics)+len(in.Pages)+len(in.Missing) == 0 {
+				if len(in.Topics)+len(in.Pages)+len(in.Missing) == 0 && in.Rising.empty() {
 					fmt.Fprintf(a.Out, "nothing to write, update, or fix in the last %d days\n", in.Days)
+					printRisingTopics(a, in.Days, in.Rising)
 					return nil
 				}
 				grouping := "wording"
@@ -224,16 +239,30 @@ func cmdAnalyticsNext() *Command {
 				}
 				if len(in.Missing) > 0 {
 					fmt.Fprintln(a.Out, "\nfix:")
+					missed := make([]whoMissed, 0, len(in.Missing))
+					for _, m := range in.Missing {
+						missed = append(missed, m.whoMissed)
+					}
+					split := splitMissed(missed)
+					headers := []string{"PATH", "ASKED", "REDIRECT TO"}
+					if split {
+						headers = slices.Concat([]string{"PATH"}, missedHeaders(true), []string{"REDIRECT TO"})
+					}
 					rows := make([][]string, 0, len(in.Missing))
 					for _, m := range in.Missing {
 						target := "-"
 						if m.Suggestion != nil {
 							target = m.Suggestion.Slug
 						}
-						rows = append(rows, []string{m.Path, strconv.Itoa(m.People + m.Agents), target})
+						asked := []string{strconv.Itoa(m.People + m.Agents)}
+						if split {
+							asked = m.cells(true)
+						}
+						rows = append(rows, slices.Concat([]string{m.Path}, asked, []string{target}))
 					}
-					a.table([]string{"PATH", "ASKED", "REDIRECT TO"}, rows)
+					a.table(headers, rows)
 				}
+				printRisingTopics(a, in.Days, in.Rising)
 				if days > in.TextDays && len(in.Topics) > 0 {
 					fmt.Fprintf(a.Err, "note: question text is kept %d days, so older questions are not listed\n", in.TextDays)
 				}

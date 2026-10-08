@@ -59,7 +59,7 @@ func cmdWorkspacesCreate() *Command {
 	}
 	return &Command{
 		Group: "workspaces", Name: "create", OpIDs: []string{"createWorkspace"},
-		Summary: "Create a workspace (org-wide key, paid plan)",
+		Summary: "Create a workspace (org-wide key, paid or Open source plan)",
 		Usage:   "cowl workspaces create NAME [--color #rrggbb] [--access-mode public|internal|private] [--listed] [--llms-txt]",
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&opts.color, "color", "", "accent color (#rrggbb)")

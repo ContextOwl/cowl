@@ -28,7 +28,7 @@ Create an agent key in **Admin > Settings > API**. Then save the key:
 ```bash
 cowl auth login                                       # hidden prompt
 cowl auth login --with-token -w platform < key.txt   # key from stdin, default workspace
-cowl whoami                                           # role, workspaces and permissions of the key
+cowl whoami                                           # role, workspaces and permissions of the key, and whether it reads drafts
 ```
 
 For a self-hosted server, add `--base-url https://docs.example.com` to `cowl auth login`. cowl saves the base URL with the key and sends the saved key only to that base URL.
@@ -44,6 +44,8 @@ npx skills add ContextOwl/cowl
 ```
 
 The skill tells the agent to search before it answers, to read single sections, to cite URLs and to send doc fixes as proposals that an editor reviews. It pre-approves read commands only.
+
+Inside Claude Code, cowl names the agent `claude-code` in the `ContextOwl-Agent` header of each request. ContextOwl analytics then counts the call as an AI agent, not as the integration cowl. In another agent, set `COWL_AGENT` to the agent name, for example `COWL_AGENT=codex`. Without an agent name, analytics counts the call as the integration cowl. Set `COWL_AGENT=none` to send no name. `cowl doctor` prints the name that cowl sends.
 
 ## Agent mode
 
@@ -70,7 +72,7 @@ When stderr is not a terminal, an error is one JSON line in the error envelope o
 | 6 | HTTP 429 after one retry |
 | 7 | HTTP 5xx or a network failure |
 
-When something does not work, run `cowl doctor`. It checks the setup and the connection, and it never prints the key, names, hosts or paths, so you can share its output in an issue.
+When something does not work, run `cowl doctor`. It checks the setup and the connection. It never prints the key, the names of the key, the org or the workspaces, hosts or paths, so you can share its output in an issue. It prints the agent name that cowl sends. When that name comes from `COWL_AGENT` and names a customer or a project, remove it from the issue.
 
 ## Writes that wait for review
 

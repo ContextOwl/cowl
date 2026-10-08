@@ -18,7 +18,9 @@ import (
 var doctorTimeout = 5 * time.Second
 
 // doctorReport is safe to paste into a public issue: it never holds the key,
-// its prefix, a name, a workspace id, the base URL or the config path.
+// its prefix, the name of the key, the org or a workspace, a workspace id,
+// the base URL or the config path. Agent is the agent name that cowl sends in
+// the ContextOwl-Agent header, or none.
 type doctorReport struct {
 	Version     string        `json:"version"`
 	OS          string        `json:"os"`
@@ -26,6 +28,8 @@ type doctorReport struct {
 	Config      string        `json:"config"`
 	BaseURL     string        `json:"baseUrl"`
 	Token       string        `json:"token"`
+	Agent       string        `json:"agent"`
+	AgentFrom   string        `json:"agentFrom,omitempty"`
 	API         doctorAPI     `json:"api"`
 	Role        string        `json:"role,omitempty"`
 	Plan        string        `json:"plan,omitempty"`
@@ -34,6 +38,7 @@ type doctorReport struct {
 	Workspaces  *int          `json:"workspaces,omitempty"`
 	Permissions []string      `json:"permissions,omitempty"`
 	Blocked     []blockedPerm `json:"blocked,omitempty"`
+	ReadsDrafts *bool         `json:"readsDrafts,omitempty"`
 	Notes       []string      `json:"notes"`
 }
 
@@ -90,6 +95,7 @@ func (a *App) diagnose() doctorReport {
 	if a.token == "" {
 		rep.note("No agent key. Run 'cowl auth login', or set CONTEXTOWL_PAT.")
 	}
+	rep.checkAgent(a)
 	if baseErr != nil || a.token == "" {
 		return rep
 	}
@@ -161,7 +167,7 @@ func (r *doctorReport) checkKeyInfo(me meInfo) {
 	}
 	n := len(me.Workspaces)
 	r.Workspaces = &n
-	r.Permissions, r.Blocked = me.Permissions, me.Blocked
+	r.Permissions, r.Blocked, r.ReadsDrafts = me.Permissions, me.Blocked, me.ReadsDrafts
 	if n == 0 {
 		r.note("The key cannot reach a workspace. Ask an admin to check the scope of the key.")
 	}
@@ -234,6 +240,7 @@ func (r doctorReport) print(a *App) {
 		{"config", r.Config},
 		{"base url", r.BaseURL},
 		{"token", r.Token},
+		{"agent", r.agentLabel()},
 		{"api", api},
 	}
 	if r.API.Result == "ok" {
@@ -249,6 +256,9 @@ func (r doctorReport) print(a *App) {
 			[2]string{"permissions", dash(strings.Join(r.Permissions, ", "))},
 			[2]string{"blocked", dash(strings.Join(blocked, ", "))},
 		)
+		if r.ReadsDrafts != nil {
+			pairs = append(pairs, [2]string{"drafts", draftsLabel(*r.ReadsDrafts)})
+		}
 	}
 	if r.Writes != "" {
 		pairs = append(pairs, [2]string{"writes", r.Writes})

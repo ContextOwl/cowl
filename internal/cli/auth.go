@@ -211,7 +211,7 @@ func meFields(me meInfo) [][2]string {
 	for _, b := range me.Blocked {
 		blocked = append(blocked, b.Permission+" ("+b.Reason+")")
 	}
-	return [][2]string{
+	fields := [][2]string{
 		{"name:", fmt.Sprintf("%q", me.Key.Name)},
 		{"expires:", expires},
 		{"org:", me.Org.Name + " (" + me.Org.ID + ", plan " + me.Org.Plan + ")"},
@@ -220,6 +220,17 @@ func meFields(me meInfo) [][2]string {
 		{"permissions:", dash(strings.Join(me.Permissions, ", "))},
 		{"blocked:", dash(strings.Join(blocked, ", "))},
 	}
+	if me.ReadsDrafts != nil {
+		fields = append(fields, [2]string{"drafts:", draftsLabel(*me.ReadsDrafts)})
+	}
+	return fields
+}
+
+func draftsLabel(readsDrafts bool) string {
+	if readsDrafts {
+		return "yes"
+	}
+	return "no, published pages only"
 }
 
 func cmdAuthLogout() *Command {
@@ -259,7 +270,7 @@ func cmdAuthLogout() *Command {
 func cmdWhoami() *Command {
 	return &Command{
 		Name: "whoami", OpIDs: []string{"getMe"},
-		Summary: "Show the key, its org, role, workspaces and effective permissions",
+		Summary: "Show the key, its org, role, workspaces, effective permissions and draft reads",
 		Usage:   "cowl whoami",
 		Run: func(a *App, args []string) error {
 			if err := noArgs(args); err != nil {

@@ -46,6 +46,8 @@ type meInfo struct {
 	Workspaces     []meWorkspace `json:"workspaces"`
 	Permissions    []string      `json:"permissions"`
 	Blocked        []blockedPerm `json:"blocked"`
+	// ReadsDrafts is nil when the server is older than the draft rule.
+	ReadsDrafts *bool `json:"readsDrafts"`
 }
 
 type meWorkspace struct {

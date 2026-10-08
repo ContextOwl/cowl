@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"net/url"
-	"strconv"
 )
 
 func cmdOpenAPIStatus() *Command {
@@ -252,12 +251,10 @@ func cmdOpenAPIPlace() *Command {
 			if err != nil {
 				return err
 			}
-			return a.emitWrite(raw, httpStatus, func() error {
-				where := ""
-				if a.flagWasSet("position") {
-					where = " at position " + strconv.Itoa(position)
-				}
-				fmt.Fprintf(a.Out, "placed page %s in %s%s\n", slug, section, where)
+			return emitWriteAs(a, raw, httpStatus, func(page struct {
+				Visibility string `json:"visibility"`
+			}) error {
+				a.printPlaced("page", slug, section, position, page.Visibility)
 				return nil
 			})
 		},

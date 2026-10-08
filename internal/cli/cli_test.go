@@ -29,6 +29,7 @@ type captured struct {
 	Auth        string
 	ContentType string
 	UserAgent   string
+	Agent       string
 }
 
 type fakeResp struct {
@@ -56,6 +57,7 @@ func (f *fakeAPI) handler() http.Handler {
 		f.reqs = append(f.reqs, captured{
 			Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Body: string(body),
 			Auth: r.Header.Get("Authorization"), ContentType: r.Header.Get("Content-Type"), UserAgent: r.Header.Get("User-Agent"),
+			Agent: r.Header.Get(agentHeader),
 		})
 		status, out := f.status, f.body
 		if resp, ok := f.routes[r.Method+" "+r.URL.Path]; ok {
@@ -305,10 +307,10 @@ func TestCommands(t *testing.T) {
 		},
 		{
 			name: "articles place with position", args: []string{"articles", "place", "intro", "--section", "guides", "--position", "2"},
-			response:   `{"slug":"intro","section":"guides"}`,
+			response:   `{"slug":"intro","section":"guides","visibility":"public","visibilityChanged":false}`,
 			wantMethod: "POST", wantPath: "/api/v1/workspaces/-/articles/intro/placement",
 			wantBody: map[string]any{"section": "guides", "position": float64(2)},
-			wantTerm: []string{"placed article intro in guides at position 2"},
+			wantTerm: []string{"placed article intro in guides at position 2 (visibility public)"},
 		},
 		{
 			name: "sections list", args: []string{"sections", "list"},
@@ -474,10 +476,10 @@ func TestCommands(t *testing.T) {
 		},
 		{
 			name: "openapi place with position", args: []string{"openapi", "place", "get-users", "--section", "api", "--position", "0"},
-			response:   `{"slug":"get-users"}`,
+			response:   `{"slug":"get-users","title":"List users","method":"GET","source":"openapi","nav":"api","visibility":"public"}`,
 			wantMethod: "POST", wantPath: "/api/v1/workspaces/-/openapi/pages/get-users/placement",
 			wantBody: map[string]any{"section": "api", "position": float64(0)},
-			wantTerm: []string{"placed page get-users in api at position 0"},
+			wantTerm: []string{"placed page get-users in api at position 0 (visibility public)"},
 		},
 		{
 			name: "openapi detach-page", args: []string{"openapi", "detach-page", "get-users"},
@@ -506,22 +508,26 @@ func TestCommands(t *testing.T) {
 			wantTerm: []string{`no results for "api kyes"`, "close titles", "api-keys", "Agent Keys"},
 		},
 		{
-			name: "insights", args: []string{"insights", "-w", "platform"},
-			response: `{"days":30,"recordsQueries":true,"calls":21,"searches":12,"reads":8,"unansweredSearches":7,"unansweredShare":58,"keys":2,` +
-				`"questions":[{"query":"sso with okta","count":3,"unanswered":3,"lastSeen":"2026-10-04T16:20:00Z"}],` +
-				`"unanswered":[{"query":"sso with okta","count":3,"unanswered":3,"lastSeen":"2026-10-04T16:20:00Z"}],` +
-				`"mostRead":[{"slug":"mcp","title":"MCP Quickstart","agentReads":3,"humanViews":40}],` +
-				`"clients":[{"label":"claude-code","value":11,"bar":100}],"keyLabels":[{"label":"laptop","value":11,"bar":100}]}`,
-			wantMethod: "GET", wantPath: "/api/v1/workspaces/platform/agent-insights",
-			wantTerm: []string{"last 30 days: 21 calls, 12 searches, 8 reads, 2 keys. 58% of searches unanswered (7).",
-				"unanswered:", "QUESTION", "LAST SEEN", "sso with okta", "2026-10-04 16:20",
-				"most read by agents:", "MCP Quickstart", "AGENT READS", "40", "clients:", "claude-code", "keys:", "laptop"},
+			name: "search with a question", args: []string{"search", "key rotation", "--question", " How do I rotate my key? "},
+			response:   `{"semantic":false,"results":[{"type":"article","slug":"api-keys","title":"Agent Keys","status":"STABLE","url":"https://docs.example.com/docs/ws/api-keys","snippet":"rotate"}]}`,
+			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/search", wantQuery: "limit=10&q=key+rotation&question=How+do+I+rotate+my+key%3F",
+			wantTerm: []string{"SLUG/ID", "api-keys", "rotate"},
+		},
+		{
+			name: "insights", args: []string{"insights", "-w", "platform", "--days", "90", "--principal", "key"},
+			response:   insightsJSON,
+			wantMethod: "GET", wantPath: "/api/v1/workspaces/platform/agent-insights", wantQuery: "days=90&principal=key",
+			wantTerm: []string{"last 90 days (who asked: agent keys): 21 calls, 12 searches, 8 reads, 2 gap reports, 2 keys. 58% of searches unanswered (7).",
+				"not counted as AI agents: 14 calls by integrations such as cowl, 3 calls by scripts.",
+				"who asked:", "signed-in readers", "unanswered:", "AGENTS", "claude-code, cursor", "2026-10-04 16:20",
+				"most read by agents:", "MCP Quickstart", "AGENT READS", "40", "agents:", "REQUESTS", "keys:", "laptop"},
 		},
 		{
 			name: "insights without traffic", args: []string{"insights"},
-			response:   `{"days":30,"recordsQueries":true,"calls":0,"searches":0,"reads":0,"unansweredSearches":0,"unansweredShare":0,"keys":0,"questions":[],"unanswered":[],"mostRead":[],"clients":[],"keyLabels":[]}`,
+			response: `{"days":30,"textDays":90,"recordsQueries":true,"calls":0,"searches":0,"reads":0,"reports":0,"unansweredSearches":0,"unansweredShare":0,"keys":0,` +
+				`"integrations":4,"scripts":0,"principals":[],"questions":[],"unanswered":[],"mostRead":[],"clients":[],"keyLabels":[]}`,
 			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/agent-insights",
-			wantTerm: []string{"no agent calls in the last 30 days"},
+			wantTerm: []string{"no AI agent calls or reads in the last 30 days"},
 		},
 		{
 			name: "analytics report", args: []string{"analytics", "report", "-w", "platform", "--days", "7"},
@@ -536,6 +542,12 @@ func TestCommands(t *testing.T) {
 				"18 searches by people, 4 found nothing. 9 searches by agents. 3 pages not found.",
 				"from AI assistants:", "ChatGPT", "most read by people:", "MCP Quickstart", "top searches:", "NO RESULTS",
 				"not found:", "/docs/platform/rotate-key"},
+		},
+		{
+			name: "analytics report splits not found", args: []string{"analytics", "report"},
+			response:   reportSplitJSON,
+			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/analytics", wantQuery: "days=30",
+			wantTerm: []string{"7 pages not found.", "not found (people 2, AI agents 1, crawlers 3, other 1):", "AI AGENTS", "CRAWLERS", "OTHER"},
 		},
 		{
 			name: "analytics next", args: []string{"analytics", "next"},
@@ -553,6 +565,19 @@ func TestCommands(t *testing.T) {
 			response:   `{"days":7,"textDays":30,"semantic":false,"topics":[],"pages":[],"missing":[]}`,
 			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/content-insights", wantQuery: "days=7",
 			wantTerm: []string{"nothing to write, update, or fix in the last 7 days"},
+		},
+		{
+			name: "analytics next splits fix", args: []string{"analytics", "next"},
+			response:   nextSplitJSON,
+			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/content-insights", wantQuery: "days=30",
+			wantTerm: []string{"fix:", "PEOPLE", "AI AGENTS", "CRAWLERS", "OTHER", "REDIRECT TO", "/docs/platform/rotate-key"},
+		},
+		{
+			name: "analytics questions", args: []string{"analytics", "questions", "--days", "7", "--actor", "agents", "--principal", "reader", "--unanswered", "--limit", "2", "--offset", "4"},
+			response:   questionsJSON,
+			wantMethod: "GET", wantPath: "/api/v1/workspaces/-/questions",
+			wantQuery: "actor=agents&days=7&limit=2&offset=4&principal=reader&unanswered=true",
+			wantTerm:  []string{"2026-09-30 to 2026-10-06: 9 questions from AI agents (who asked: signed-in readers), only unanswered or reported.", "QUESTION", "sso with okta"},
 		},
 		{
 			name: "analytics gap", args: []string{"analytics", "gap", "How do I rotate", "a key?", "--slug", "api-keys"},
@@ -594,6 +619,9 @@ func TestCommands(t *testing.T) {
 			}
 			if !strings.HasPrefix(req.UserAgent, "cowl/") {
 				t.Errorf("user agent = %q", req.UserAgent)
+			}
+			if req.Agent != "" {
+				t.Errorf("%s header = %q, want none without COWL_AGENT or an agent environment", agentHeader, req.Agent)
 			}
 			if tt.wantBody != nil {
 				got := decodeBody(t, req.Body)
@@ -648,6 +676,15 @@ func TestUsageErrors(t *testing.T) {
 		{"analytics report days range", []string{"analytics", "report", "--days", "0"}, "--days must be 1 to 731", ""},
 		{"analytics next days range", []string{"analytics", "next", "--days", "91"}, "--days must be 1 to 90", ""},
 		{"analytics gap needs a question", []string{"analytics", "gap"}, "QUESTION is required", ""},
+		{"insights days range", []string{"insights", "--days", "91"}, "--days must be 1 to 90", ""},
+		{"insights rejects an unknown principal", []string{"insights", "--principal", "admin"}, "--principal must be key, anonymous or reader", ""},
+		{"insights rejects an empty principal", []string{"insights", "--principal", ""}, "--principal must be key, anonymous or reader", ""},
+		{"analytics questions days range", []string{"analytics", "questions", "--days", "0"}, "--days must be 1 to 90", ""},
+		{"analytics questions rejects an unknown actor", []string{"analytics", "questions", "--actor", "bots"}, "--actor must be agents, people or tools", ""},
+		{"analytics questions limit range", []string{"analytics", "questions", "--limit", "1001"}, "--limit must be 1 to 1000", ""},
+		{"analytics questions offset range", []string{"analytics", "questions", "--offset", "-1"}, "--offset must be 0 or more", ""},
+		{"analytics questions csv or json", []string{"analytics", "questions", "--csv", "--json"}, "use --csv or --json, not both", ""},
+		{"analytics questions takes no args", []string{"analytics", "questions", "sso"}, "unexpected argument: sso", ""},
 		{"articles list rejects bad status", []string{"articles", "list", "--status", "DRAFT,PUBLISHED"}, "got PUBLISHED", ""},
 		{"articles get needs a slug", []string{"articles", "get"}, "at least one SLUG", ""},
 		{"articles get section needs one slug", []string{"articles", "get", "a", "b", "--section", "x"}, "--section works with one SLUG only", ""},
@@ -702,6 +739,215 @@ func TestUsageErrors(t *testing.T) {
 				t.Errorf("request should not have been sent, got %v", reqs)
 			}
 		})
+	}
+}
+
+// keptNote is the kept-access note of cowl articles place. flags are the
+// global flags at the end of both commands.
+func keptNote(slug, section, flags string) string {
+	return "note: " + slug + " kept the access of " + section + " that it left, so the move did not open it to more readers. To open it, run:\n" +
+		"  cowl articles update " + slug + " --visibility public" + flags + "\n" +
+		"If the update fails with openapi_generated, detach the generated page first. Later syncs then skip the page. To detach it, run:\n" +
+		"  cowl openapi detach-page " + slug + flags + "\n"
+}
+
+// TestPlaceReceipts: the place receipts print the visibility that the server
+// returns. When an article kept the access of the section that it left, a note
+// says how to open it. A server that sends no visibility gets the receipt
+// without it. In a pipe and with --json, cowl prints the body and no note.
+func TestPlaceReceipts(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "config.json")
+	env := map[string]string{"CONTEXTOWL_CONFIG": cfg}
+	tests := []struct {
+		name     string
+		args     []string
+		response string
+		wantOut  string
+		wantErr  string
+	}{
+		{
+			name:     "article keeps its own visibility",
+			args:     []string{"articles", "place", "intro", "--section", "guides", "--position", "2"},
+			response: `{"slug":"intro","section":"guides","visibility":"public","visibilityChanged":false}`,
+			wantOut:  "placed article intro in guides at position 2 (visibility public)\n",
+		},
+		{
+			name:     "article keeps the access of the section that it left",
+			args:     []string{"articles", "place", "partner-pricing", "--section", "none", "-w", "partners"},
+			response: `{"slug":"partner-pricing","section":"none","visibility":"private","visibilityChanged":true}`,
+			wantOut:  "placed article partner-pricing in none (visibility private)\n",
+			wantErr:  keptNote("partner-pricing", "the private section", " -w partners --config "+shellQuote(cfg)),
+		},
+		{
+			name:     "article on a server without the visibility fields",
+			args:     []string{"articles", "place", "intro", "--section", "guides"},
+			response: `{"slug":"intro","section":"guides"}`,
+			wantOut:  "placed article intro in guides\n",
+		},
+		{
+			name: "openapi page",
+			args: []string{"openapi", "place", "get-users", "--section", "none"},
+			response: `{"slug":"get-users","title":"List users","section":"","kicker":"","status":"STABLE","author":"","method":"GET","source":"openapi",` +
+				`"markdown":"# List users\n","nav":"none","navLabel":"List users","level":0,"isFolder":false,"sort":0,"views":0,"visibility":"private",` +
+				`"locked":false,"encrypted":false,"archived":false,"updatedAt":"2026-10-07T10:00:00Z","updatedLabel":"","createdAt":"2026-10-01T10:00:00Z"}`,
+			wantOut: "placed page get-users in none (visibility private)\n",
+		},
+		{
+			name:     "openapi page without a visibility",
+			args:     []string{"openapi", "place", "get-users", "--section", "api", "--position", "0"},
+			response: `{"slug":"get-users"}`,
+			wantOut:  "placed page get-users in api at position 0\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &fakeAPI{body: tt.response}
+			out, errOut, code := run(t, f, tt.args, runOpts{term: true, env: env})
+			if code != 0 || out != tt.wantOut || errOut != tt.wantErr {
+				t.Errorf("terminal: exit %d\nstdout %q\nwant   %q\nstderr %q\nwant   %q", code, out, tt.wantOut, errOut, tt.wantErr)
+			}
+			for _, mode := range []struct {
+				name string
+				args []string
+				opts runOpts
+			}{
+				{"pipe", tt.args, runOpts{env: env}},
+				{"--json", append(append([]string(nil), tt.args...), "--json"), runOpts{term: true, env: env}},
+			} {
+				out, errOut, code := run(t, f, mode.args, mode.opts)
+				if want := compactJSON(t, tt.response) + "\n"; code != 0 || out != want || errOut != "" {
+					t.Errorf("%s: exit %d, stdout %q, stderr %q, want the body %q and no note", mode.name, code, out, errOut, want)
+				}
+			}
+		})
+	}
+}
+
+// TestKeptAccessNote: the commands of the note end with the resolved
+// workspace, and with --config when a flag or the environment named the
+// config file.
+func TestKeptAccessNote(t *testing.T) {
+	tests := []struct {
+		name       string
+		visibility string
+		workspace  string
+		config     string
+		env        map[string]string
+		want       string
+	}{
+		{name: "internal section", visibility: "internal", workspace: "partners",
+			want: keptNote("intro", "the internal section", " -w partners")},
+		{name: "no visibility from the server", workspace: "-",
+			want: keptNote("intro", "the section", " -w -")},
+		{name: "config flag with a space", visibility: "private", workspace: "partners", config: "/home/me/cowl configs/org b.json",
+			want: keptNote("intro", "the private section", " -w partners --config '/home/me/cowl configs/org b.json'")},
+		{name: "config from the environment", visibility: "private", workspace: "docs", env: map[string]string{"COWL_CONFIG": "/srv/cowl.json"},
+			want: keptNote("intro", "the private section", " -w docs --config /srv/cowl.json")},
+		{name: "config flag over the environment", visibility: "private", workspace: "docs", config: "/srv/flag.json",
+			env:  map[string]string{"CONTEXTOWL_CONFIG": "/srv/env.json"},
+			want: keptNote("intro", "the private section", " -w docs --config /srv/flag.json")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &App{IO: IO{Env: func(k string) string { return tt.env[k] }}, g: globals{config: tt.config}, workspace: tt.workspace}
+			if got := a.keptAccessNote("intro", tt.visibility); got != tt.want {
+				t.Errorf("keptAccessNote:\ngot  %q\nwant %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestKeptAccessNoteCommands pastes the commands of the note into a shell that
+// names another workspace and no key. The commands still reach the workspace
+// of the place command with the key of its config file.
+func TestKeptAccessNoteCommands(t *testing.T) {
+	f := &fakeAPI{fn: func(r *http.Request) (int, string) {
+		if strings.HasSuffix(r.URL.Path, "/placement") {
+			return http.StatusOK, `{"slug":"partner-pricing","section":"none","visibility":"private","visibilityChanged":true}`
+		}
+		return http.StatusOK, `{"slug":"partner-pricing"}`
+	}}
+	base := serve(t, f)
+	cfg := filepath.Join(t.TempDir(), "org b", "config.json")
+	if err := saveConfig(cfg, Config{BaseURL: base, Token: "cowl_pat_orgb0token", Workspace: "docs"}); err != nil {
+		t.Fatal(err)
+	}
+	shell := map[string]string{"CONTEXTOWL_PAT": "", "CONTEXTOWL_WORKSPACE": "docs"}
+	tests := []struct {
+		name   string
+		flags  []string
+		inline map[string]string
+		want   string
+	}{
+		{name: "-w over the environment", flags: []string{"-w", "partners", "--config", cfg}, want: "partners"},
+		{name: "-w - over the config file", flags: []string{"-w", "-", "--config", cfg}, want: "-"},
+		{name: "inline environment", inline: map[string]string{"CONTEXTOWL_WORKSPACE": "partners", "CONTEXTOWL_CONFIG": cfg}, want: "partners"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := map[string]string{}
+			for _, m := range []map[string]string{shell, tt.inline} {
+				for k, v := range m {
+					env[k] = v
+				}
+			}
+			start := len(f.requests())
+			args := append([]string{"articles", "place", "partner-pricing", "--section", "none"}, tt.flags...)
+			_, note, code := runAt(t, base, args, runOpts{term: true, env: env})
+			if code != 0 {
+				t.Fatalf("place: exit %d, stderr %q", code, note)
+			}
+			pasted := 0
+			for _, line := range strings.Split(note, "\n") {
+				cmd, ok := strings.CutPrefix(line, "  cowl ")
+				if !ok {
+					continue
+				}
+				pasted++
+				if _, errOut, code := runAt(t, base, shellWords(cmd), runOpts{term: true, env: shell}); code != 0 {
+					t.Fatalf("pasted %q: exit %d, stderr %q", line, code, errOut)
+				}
+			}
+			ws := "/api/v1/workspaces/" + tt.want
+			want := []string{
+				"POST " + ws + "/articles/partner-pricing/placement",
+				"PATCH " + ws + "/articles/partner-pricing",
+				"DELETE " + ws + "/openapi/pages/partner-pricing",
+			}
+			reqs := f.requests()[start:]
+			var got []string
+			for _, r := range reqs {
+				got = append(got, r.Method+" "+r.Path)
+				if r.Auth != "Bearer cowl_pat_orgb0token" {
+					t.Errorf("%s %s sent the key %q, want the key of the config file", r.Method, r.Path, r.Auth)
+				}
+			}
+			if pasted != 2 || strings.Join(got, "\n") != strings.Join(want, "\n") {
+				t.Fatalf("pasted %d commands from the note %q\nrequests %q\nwant     %q", pasted, note, got, want)
+			}
+			if body := decodeBody(t, reqs[1].Body); len(body) != 1 || body["visibility"] != "public" {
+				t.Errorf("update body = %v, want only visibility public", body)
+			}
+		})
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	for in, want := range map[string]string{
+		"partners":                     "partners",
+		"-":                            "-",
+		"/home/me/.config/c.json":      "/home/me/.config/c.json",
+		"/home/me/cowl configs/c.json": "'/home/me/cowl configs/c.json'",
+		`C:\Users\me\c.json`:           `'C:\Users\me\c.json'`,
+		"it's":                         `'it'\''s'`,
+		"$HOME/c.json":                 "'$HOME/c.json'",
+		"~/c.json":                     "'~/c.json'",
+		"=c.json":                      "'=c.json'",
+		"":                             "''",
+	} {
+		if got := shellQuote(in); got != want {
+			t.Errorf("shellQuote(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 
@@ -1130,12 +1376,51 @@ func TestHelp(t *testing.T) {
 	}
 }
 
+func TestReadHelpStatesTheDraftRule(t *testing.T) {
+	rule := []string{"The org setting Published pages only limits draft reads.", "article.propose", "cowl whoami to see if the key reads drafts."}
+	tests := []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"search", "--help"}, []string{"usage: cowl search QUERY", "-published-only\n", "A key that reads no drafts never gets them"}},
+		{[]string{"articles", "list", "--help"}, []string{"usage: cowl articles list", "-published-only\n", "A key that reads no drafts never gets them",
+			"-status string\n", "A key that reads no drafts gets no DRAFT or IN REVIEW rows"}},
+		{[]string{"articles", "get", "--help"}, []string{"usage: cowl articles get", "a DRAFT or IN REVIEW article is not found,\nand so is a slug that redirects to one."}},
+		{[]string{"sections", "list", "--help"}, []string{"usage: cowl sections list", "the ARTICLES column counts published\narticles only, and so does articleCount in the JSON output.",
+			"A section that\nholds only drafts shows 0."}},
+	}
+	f := &fakeAPI{}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			out, _, code := run(t, f, tt.args, runOpts{})
+			if code != 0 {
+				t.Fatalf("exit %d", code)
+			}
+			for _, want := range append(tt.want, rule...) {
+				if !strings.Contains(out, want) {
+					t.Errorf("help missing %q:\n%s", want, out)
+				}
+			}
+		})
+	}
+	searchHelp, _, _ := run(t, f, []string{"search", "--help"}, runOpts{})
+	if out, _, code := run(t, f, []string{"help", "search"}, runOpts{}); code != 0 || out != searchHelp {
+		t.Errorf("cowl help search must print the command help: exit %d\n%s", code, out)
+	}
+	if out, _, _ := run(t, f, []string{"articles", "--help"}, runOpts{}); strings.Contains(out, "flags:") || !strings.Contains(out, "cowl articles get SLUG") {
+		t.Errorf("a group still lists its commands:\n%s", out)
+	}
+	if len(f.requests()) != 0 {
+		t.Error("help must not call the API")
+	}
+}
+
 func TestRESTOpIDs(t *testing.T) {
 	want := []string{
 		"attachOpenAPI", "autofillLanding", "createArticle", "createChangelog", "createOpenAPISection", "createSection",
 		"createWorkspace", "deleteChangelog", "deleteWorkspace", "detachOpenAPI", "detachOpenAPIPage", "getAgentInsights",
 		"getAnalyticsReport", "getArticle", "getChangelog", "getContentInsights", "getLanding", "getMe", "getOpenAPISpec",
-		"getOpenAPIStatus", "listArticles", "listChangelog", "listOpenAPIPages", "listProposals", "listSections",
+		"getOpenAPIStatus", "listArticles", "listChangelog", "listOpenAPIPages", "listProposals", "listQuestions", "listSections",
 		"listWorkspaces", "placeArticle", "placeOpenAPIPage", "proposeArticleEdit", "proposeLandingEdit", "reportContentGap",
 		"searchDocs", "setLanding", "syncOpenAPI", "updateArticle", "updateChangelog", "updateWorkspace", "uploadImage",
 	}
