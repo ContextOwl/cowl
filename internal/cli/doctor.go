@@ -33,6 +33,7 @@ type doctorReport struct {
 	Workspaces  *int          `json:"workspaces,omitempty"`
 	Permissions []string      `json:"permissions,omitempty"`
 	Blocked     []blockedPerm `json:"blocked,omitempty"`
+	ReadsDrafts *bool         `json:"readsDrafts,omitempty"`
 	Notes       []string      `json:"notes"`
 }
 
@@ -160,7 +161,7 @@ func (r *doctorReport) checkKeyInfo(me meInfo) {
 	}
 	n := len(me.Workspaces)
 	r.Workspaces = &n
-	r.Permissions, r.Blocked = me.Permissions, me.Blocked
+	r.Permissions, r.Blocked, r.ReadsDrafts = me.Permissions, me.Blocked, me.ReadsDrafts
 	if n == 0 {
 		r.note("The key cannot reach a workspace. Ask an admin to check the scope of the key.")
 	}
@@ -245,6 +246,9 @@ func (r doctorReport) print(a *App) {
 			[2]string{"permissions", dash(strings.Join(r.Permissions, ", "))},
 			[2]string{"blocked", dash(strings.Join(blocked, ", "))},
 		)
+		if r.ReadsDrafts != nil {
+			pairs = append(pairs, [2]string{"drafts", draftsLabel(*r.ReadsDrafts)})
+		}
 	}
 	fmt.Fprintln(a.Out, "cowl doctor")
 	a.fields(pairs)

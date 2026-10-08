@@ -19,6 +19,15 @@ var validArticleStatuses = map[string]bool{
 
 const articleStatusList = "DRAFT, IN REVIEW, BETA, STABLE, DEPRECATED"
 
+// draftRuleNote is the help text of the read commands that says which keys
+// read drafts.
+const draftRuleNote = `The org setting Published pages only limits draft reads. When it is on, only
+a key that can use article.create, article.update, article.propose,
+article.publish or article.place reads DRAFT and IN REVIEW articles. Run
+cowl whoami to see if the key reads drafts.`
+
+const publishedOnlyFlagHelp = "leave out DRAFT and IN REVIEW articles. A key that reads no drafts never gets them"
+
 var validArticleVisibilities = map[string]bool{
 	"public": true, "internal": true, "private": true,
 }
@@ -64,11 +73,13 @@ func cmdArticlesList() *Command {
 		Group: "articles", Name: "list", OpIDs: []string{"listArticles"},
 		Summary: "List articles in sidebar order, or newest first with --updated-since",
 		Usage:   "cowl articles list [--status S1,S2] [--nav KEY|none] [--updated-since 7d] [--published-only]",
+		Notes:   draftRuleNote,
 		Flags: func(fs *flag.FlagSet) {
-			fs.StringVar(&opts.status, "status", "", "only these statuses, comma-separated: "+articleStatusList)
+			fs.StringVar(&opts.status, "status", "", "only these statuses, comma-separated: "+articleStatusList+
+				". A key that reads no drafts gets no DRAFT or IN REVIEW rows")
 			fs.StringVar(&opts.nav, "nav", "", "only articles in this section key, or none for unplaced articles")
 			fs.StringVar(&opts.updatedSince, "updated-since", "", "only articles updated since a time: RFC 3339, YYYY-MM-DD, or a duration such as 7d or 24h")
-			fs.BoolVar(&opts.publishedOnly, "published-only", false, "leave out DRAFT and IN REVIEW articles")
+			fs.BoolVar(&opts.publishedOnly, "published-only", false, publishedOnlyFlagHelp)
 		},
 		Run: func(a *App, args []string) error {
 			if err := noArgs(args); err != nil {
@@ -113,6 +124,10 @@ func cmdArticlesGet() *Command {
 		Group: "articles", Name: "get", OpIDs: []string{"getArticle"},
 		Summary: "Print articles as front matter and Markdown (--json for the API objects)",
 		Usage:   "cowl articles get SLUG... [--section ANCHOR]",
+		Notes: draftRuleNote + `
+
+For a key that reads no drafts, a DRAFT or IN REVIEW article is not found,
+and so is a slug that redirects to one.`,
 		Flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&section, "section", "", "print only the heading with this anchor and its text (one SLUG only)")
 		},

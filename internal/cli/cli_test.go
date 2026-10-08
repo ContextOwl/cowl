@@ -1130,6 +1130,45 @@ func TestHelp(t *testing.T) {
 	}
 }
 
+func TestReadHelpStatesTheDraftRule(t *testing.T) {
+	rule := []string{"The org setting Published pages only limits draft reads.", "article.propose", "cowl whoami to see if the key reads drafts."}
+	tests := []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"search", "--help"}, []string{"usage: cowl search QUERY", "-published-only\n", "A key that reads no drafts never gets them"}},
+		{[]string{"articles", "list", "--help"}, []string{"usage: cowl articles list", "-published-only\n", "A key that reads no drafts never gets them",
+			"-status string\n", "A key that reads no drafts gets no DRAFT or IN REVIEW rows"}},
+		{[]string{"articles", "get", "--help"}, []string{"usage: cowl articles get", "a DRAFT or IN REVIEW article is not found,\nand so is a slug that redirects to one."}},
+		{[]string{"sections", "list", "--help"}, []string{"usage: cowl sections list", "the ARTICLES column counts published\narticles only, and so does articleCount in the JSON output.",
+			"A section that\nholds only drafts shows 0."}},
+	}
+	f := &fakeAPI{}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			out, _, code := run(t, f, tt.args, runOpts{})
+			if code != 0 {
+				t.Fatalf("exit %d", code)
+			}
+			for _, want := range append(tt.want, rule...) {
+				if !strings.Contains(out, want) {
+					t.Errorf("help missing %q:\n%s", want, out)
+				}
+			}
+		})
+	}
+	searchHelp, _, _ := run(t, f, []string{"search", "--help"}, runOpts{})
+	if out, _, code := run(t, f, []string{"help", "search"}, runOpts{}); code != 0 || out != searchHelp {
+		t.Errorf("cowl help search must print the command help: exit %d\n%s", code, out)
+	}
+	if out, _, _ := run(t, f, []string{"articles", "--help"}, runOpts{}); strings.Contains(out, "flags:") || !strings.Contains(out, "cowl articles get SLUG") {
+		t.Errorf("a group still lists its commands:\n%s", out)
+	}
+	if len(f.requests()) != 0 {
+		t.Error("help must not call the API")
+	}
+}
+
 func TestRESTOpIDs(t *testing.T) {
 	want := []string{
 		"attachOpenAPI", "autofillLanding", "createArticle", "createChangelog", "createOpenAPISection", "createSection",
